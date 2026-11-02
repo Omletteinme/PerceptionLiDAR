@@ -1,0 +1,259 @@
+<?xml version="1.0"?>
+<!-- Sewer-inspection robot: differential drive, IMU, 2D LiDAR.
+     SIMULATED by Gazebo Harmonic: physics, wheel odometry (DiffDrive plugin),
+     IMU and LiDAR sensors, ground-truth pose. Nothing custom lives in this file. -->
+<robot name="sewer_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Dimensions (metres / kg). Defaults chosen Day 2, see PLAN.md "Decisions made". -->
+  <xacro:property name="chassis_l" value="0.30"/>
+  <xacro:property name="chassis_w" value="0.18"/>
+  <xacro:property name="chassis_h" value="0.08"/>
+  <xacro:property name="chassis_m" value="4.0"/>
+  <xacro:property name="wheel_r"   value="0.06"/>
+  <xacro:property name="wheel_w"   value="0.04"/>
+  <xacro:property name="wheel_m"   value="0.3"/>
+  <xacro:property name="track"     value="0.26"/>  <!-- wheel centre to wheel centre -->
+  <xacro:property name="caster_r"  value="0.03"/>
+  <xacro:property name="caster_x"  value="0.12"/>
+  <xacro:property name="caster_m"  value="0.05"/>
+
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertia ixx="${m*(y*y+z*z)/12}" ixy="0" ixz="0" iyy="${m*(x*x+z*z)/12}" iyz="0" izz="${m*(x*x+y*y)/12}"/>
+  </xacro:macro>
+
+  <!-- REP 105: base_footprint (on ground) -> base_link (wheel-axle height) -> sensors/wheels -->
+  <link name="base_footprint">
+    <inertial><mass value="0.001"/><inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/></inertial>
+  </link>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/><child link="base_link"/>
+    <origin xyz="0 0 ${wheel_r}" rpy="0 0 0"/>
+  </joint>
+  <gazebo reference="base_joint"><preserveFixedJoint>true</preserveFixedJoint></gazebo>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.01"/>
+      <geometry><box size="${chassis_l} ${chassis_w} ${chassis_h}"/></geometry>
+      <material name="body"><color rgba="1.0 0.9 0.05 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.01"/>
+      <geometry><box size="${chassis_l} ${chassis_w} ${chassis_h}"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0.01"/><mass value="${chassis_m}"/>
+      <xacro:box_inertia m="${chassis_m}" x="${chassis_l}" y="${chassis_w}" z="${chassis_h}"/>
+    </inertial>
+  </link>
+
+  <!-- Wheels: continuous joints about y -->
+  <xacro:macro name="wheel" params="name y">
+    <link name="${name}_wheel_link">
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+        <material name="tyre"><color rgba="0.1 0.1 0.1 1"/></material>
+      </visual>
+      <!-- Sphere collision (visual stays a cylinder): a flat cylinder's contact patch scrubs at the
+           inner edge when pivoting, shrinking the effective track by ~wheel_w (measured Day 3). -->
+      <collision>
+        <geometry><sphere radius="${wheel_r}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="${wheel_m}"/>
+        <inertia ixx="${wheel_m*(3*wheel_r*wheel_r+wheel_w*wheel_w)/12}" ixy="0" ixz="0"
+                 iyy="${wheel_m*wheel_r*wheel_r/2}" iyz="0"
+                 izz="${wheel_m*(3*wheel_r*wheel_r+wheel_w*wheel_w)/12}"/>
+      </inertial>
+    </link>
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="base_link"/><child link="${name}_wheel_link"/>
+      <origin xyz="0 ${y} 0"/><axis xyz="0 1 0"/>
+    </joint>
+    <gazebo reference="${name}_wheel_link"><mu1>1.0</mu1><mu2>1.0</mu2></gazebo>
+  </xacro:macro>
+  <xacro:wheel name="left"  y="${ track/2}"/>
+  <xacro:wheel name="right" y="${-track/2}"/>
+
+  <!-- Frictionless ball casters front and back (passive support) -->
+  <xacro:macro name="caster" params="name x">
+    <link name="${name}_caster_link">
+      <collision><geometry><sphere radius="${caster_r}"/></geometry></collision>
+      <visual><geometry><sphere radius="${caster_r}"/></geometry></visual>
+      <inertial>
+        <mass value="${caster_m}"/>
+        <inertia ixx="${0.4*caster_m*caster_r*caster_r}" ixy="0" ixz="0" iyy="${0.4*caster_m*caster_r*caster_r}" iyz="0" izz="${0.4*caster_m*caster_r*caster_r}"/>
+      </inertial>
+    </link>
+    <joint name="${name}_caster_joint" type="fixed">
+      <parent link="base_link"/><child link="${name}_caster_link"/>
+      <origin xyz="${x} 0 ${caster_r-wheel_r}"/>
+    </joint>
+    <gazebo reference="${name}_caster_link"><mu1>0.0</mu1><mu2>0.0</mu2></gazebo>
+  </xacro:macro>
+  <xacro:caster name="front" x="${caster_x}"/>
+  <xacro:caster name="rear"  x="${-caster_x}"/>
+
+  <!-- IMU at chassis centre -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/><child link="imu_link"/><origin xyz="0 0 0.02"/>
+  </joint>
+
+  <!-- 2D LiDAR on top, slightly forward -->
+  <link name="lidar_link">
+    <visual><geometry><cylinder radius="0.03" length="0.04"/></geometry>
+      <material name="lidar"><color rgba="0.2 0.2 0.8 1"/></material></visual>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/><child link="lidar_link"/><origin xyz="0.05 0 0.07"/>
+  </joint>
+
+  <!-- Beacon: a thin mast with a bright ball, visual only, so the robot can be seen from the oblique overview camera
+       above the 1 m walls. It starts 0.2 m above base_link, i.e. ABOVE the LiDAR scan plane: the GPU LiDAR
+       ray-casts against visual geometry, so anything crossing that plane would show up as a phantom obstacle. -->
+  <link name="beacon_link">
+    <visual>
+      <origin xyz="0 0 0.8"/>
+      <geometry><cylinder radius="0.015" length="1.6"/></geometry>
+      <material name="mast"><color rgba="0.9 0.9 0.9 1"/></material>
+    </visual>
+    <visual>
+      <origin xyz="0 0 1.65"/>
+      <geometry><sphere radius="0.22"/></geometry>
+      <material name="ball"><color rgba="0.1 1.0 0.25 1"/></material>
+    </visual>
+  </link>
+  <joint name="beacon_joint" type="fixed">
+    <parent link="base_link"/><child link="beacon_link"/><origin xyz="-0.1 0 0.2"/>
+  </joint>
+
+  <!-- Cameras for 3D renders and demos (SIMULATED). They render only while something subscribes to the topic.
+       camera_link: the robot's own view, at the front. chase_cam_link: behind and above, looking down at the robot. -->
+  <link name="camera_link"/>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/><child link="camera_link"/><origin xyz="0.16 0 0.05" rpy="0 0.05 0"/>
+  </joint>
+  <link name="chase_cam_link"/>
+  <joint name="chase_cam_joint" type="fixed">
+    <parent link="base_link"/><child link="chase_cam_link"/><origin xyz="-0.75 0 0.55" rpy="0 0.5 0"/>
+  </joint>
+
+  <!-- ===== Gazebo (SIMULATED) ===== -->
+  <gazebo>
+    <!-- Wheel odometry + cmd_vel. Odom is integrated from wheel joints; noise/slip injection comes later. -->
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${track}</wheel_separation>
+      <wheel_radius>${wheel_r}</wheel_radius>
+      <max_linear_acceleration>1.0</max_linear_acceleration>
+      <max_angular_acceleration>2.0</max_angular_acceleration>
+      <topic>cmd_vel</topic>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_footprint</child_frame_id>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+    </plugin>
+    <!-- TRUE pose from the physics engine. Evaluation only, never fed to a filter. -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <odom_topic>ground_truth/odom</odom_topic>
+      <tf_topic>ground_truth/tf</tf_topic>
+      <dimensions>2</dimensions>
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+  </gazebo>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <topic>imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0</mean><stddev>0.017</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0</mean><stddev>0.017</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0</mean><stddev>0.017</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <!-- Contact sensors (SIMULATED) for the collision metric: chassis and both wheels (the wheels stick out sideways
+       beyond the chassis, so they touch a side wall first). Each publishes on /world/<world>/model/sewer_robot/link/<link>/
+       sensor/<link>_contact/contact (Gazebo ignores a <topic> here); robot_sim.launch.py bridges them to contacts/*, and
+       floor contacts are filtered out by the collision_counter_node in sewer_eval. -->
+  <xacro:macro name="contact_sensor" params="link collision">
+    <gazebo reference="${link}">
+      <sensor name="${link}_contact" type="contact">
+        <always_on>true</always_on>
+        <update_rate>20</update_rate>
+        <contact><collision>${collision}</collision></contact>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+  <xacro:contact_sensor link="base_link" collision="base_link_collision"/>
+  <xacro:contact_sensor link="left_wheel_link" collision="left_wheel_link_collision"/>
+  <xacro:contact_sensor link="right_wheel_link" collision="right_wheel_link_collision"/>
+
+  <gazebo reference="camera_link">
+    <sensor name="robot_cam" type="camera">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <topic>robot_cam/image</topic>
+      <gz_frame_id>camera_link</gz_frame_id>
+      <camera>
+        <horizontal_fov>1.5</horizontal_fov>
+        <image><width>640</width><height>360</height></image>
+        <clip><near>0.05</near><far>30</far></clip>
+      </camera>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="chase_cam_link">
+    <sensor name="chase_cam" type="camera">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <topic>chase_cam/image</topic>
+      <gz_frame_id>chase_cam_link</gz_frame_id>
+      <camera>
+        <horizontal_fov>1.2</horizontal_fov>
+        <image><width>640</width><height>360</height></image>
+        <clip><near>0.05</near><far>40</far></clip>
+      </camera>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="lidar_link">
+    <sensor name="lidar" type="gpu_lidar">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <topic>scan</topic>
+      <gz_frame_id>lidar_link</gz_frame_id>
+      <lidar>
+        <scan><horizontal>
+          <samples>360</samples><resolution>1</resolution>
+          <min_angle>-3.14159</min_angle><max_angle>3.14159</max_angle>
+        </horizontal></scan>
+        <range><min>0.12</min><max>8.0</max><resolution>0.01</resolution></range>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+      </lidar>
+    </sensor>
+  </gazebo>
+</robot>

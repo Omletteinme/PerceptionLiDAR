@@ -1,0 +1,47 @@
+comment: GROUND TRUTH, EVALUATION ONLY. Never read this from localization/perception/planning.
+min_passable_gap: 0.5
+blockages:
+  B1:
+    edge:
+    - J1
+    - J4
+    kind: full
+    free_gap: 0.0
+    blocks_route: true
+    pieces:
+    - - box
+      - 12.0
+      - -0.25
+      - 0.5
+      - 0.6
+      - 0.5
+    - - box
+      - 12.1
+      - 0.25
+      - 0.6
+      - 0.6
+      - 0.4
+    - - cyl
+      - 11.8
+      - 0.0
+      - 0.25
+      - 0.5
+  B2:
+    edge:
+    - J1
+    - J2
+    kind: partial
+    free_gap: 0.6
+    blocks_route: false
+    pieces:
+    - - box
+      - 7.7
+      - 3.0
+      - 0.4
+      - 0.6
+      - 0.35
+    - - cyl
+      - 7.7
+      - 3.55
+      - 0.12
+      - 0.3

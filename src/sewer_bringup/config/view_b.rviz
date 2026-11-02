@@ -1,0 +1,340 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+      Splitter Ratio: 0.5
+    Tree Height: 700
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.9
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: true
+      Enabled: true
+      Name: Prior map (walls only, debris is NOT in it)
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description Source: Topic
+      Description Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_description
+      Enabled: true
+      Name: Robot model
+      Value: true
+      Visual Enabled: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/LaserScan
+      Color: 255; 255; 255
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: LiDAR as measured (/scan)
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.03
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /scan
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: false
+      Class: rviz_default_plugins/LaserScan
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 0; 255; 0
+      Max Intensity: 1
+      Min Color: 255; 0; 0
+      Min Intensity: 0
+      Name: LiDAR used by the filter, coloured by reliability (red 0 - green 1)
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.07
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /reliability/reliability_scan
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    - Alpha: 0.5
+      Arrow Length: 0.15
+      Class: rviz_default_plugins/PoseArray
+      Color: 60; 120; 255
+      Enabled: true
+      Head Length: 0.07
+      Head Radius: 0.03
+      Name: Baseline particles
+      Shaft Length: 0.08
+      Shaft Radius: 0.01
+      Shape: Arrow (Flat)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /baseline/particle_cloud
+      Value: true
+    - Alpha: 0.5
+      Arrow Length: 0.15
+      Class: rviz_default_plugins/PoseArray
+      Color: 255; 70; 60
+      Enabled: true
+      Head Length: 0.07
+      Head Radius: 0.03
+      Name: Reliability-aware particles
+      Shaft Length: 0.08
+      Shaft Radius: 0.01
+      Shape: Arrow (Flat)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /reliability/particle_cloud
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/PoseWithCovariance
+      Color: 30; 90; 255
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.4
+          Color: 30; 90; 255
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Head Length: 0.3
+      Head Radius: 0.1
+      Name: Baseline estimate + 1-sigma
+      Shaft Length: 0.5
+      Shaft Radius: 0.03
+      Shape: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /baseline/estimated_pose
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/PoseWithCovariance
+      Color: 255; 30; 30
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.4
+          Color: 255; 30; 30
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Head Length: 0.3
+      Head Radius: 0.1
+      Name: Reliability-aware estimate + 1-sigma
+      Shaft Length: 0.5
+      Shaft Radius: 0.03
+      Shape: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /reliability/estimated_pose
+      Value: true
+    - Angle Tolerance: 0
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.3
+          Color: 204; 51; 204
+          Scale: 1
+          Value: false
+        Value: false
+      Enabled: true
+      Keep: 1
+      Name: TRUE pose (green; evaluation only, never used by the filters)
+      Position Tolerance: 0
+      Shape:
+        Alpha: 1
+        Axes Length: 1
+        Axes Radius: 0.1
+        Color: 0; 220; 0
+        Head Length: 0.3
+        Head Radius: 0.12
+        Shaft Length: 0.6
+        Shaft Radius: 0.05
+        Value: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /ground_truth/odom
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Baseline status
+      Namespaces: {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /baseline/status_marker
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Reliability-aware status
+      Namespaces: {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /reliability/status_marker
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 255; 220; 0
+      Enabled: true
+      Head Diameter: 0.3
+      Head Length: 0.2
+      Length: 0.3
+      Line Style: Lines
+      Line Width: 0.04
+      Name: Planned route (yellow)
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.05
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0.1
+      Shaft Length: 0.1
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /route
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Detected blockages (orange cells, labelled edges)
+      Namespaces: {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /blockages
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 20; 22; 28
+    Fixed Frame: map
+    Frame Rate: 20
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Invert Z Axis: false
+      Name: Follow robot
+      Near Clip Distance: 0.01
+      Scale: 110
+      Target Frame: base_footprint
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: 0
+      Y: 0
+    Saved:
+      - Class: rviz_default_plugins/TopDownOrtho
+        Invert Z Axis: false
+        Name: Overview (whole network)
+        Near Clip Distance: 0.01
+        Scale: 50
+        Target Frame: map
+        Value: TopDownOrtho (rviz_default_plugins)
+        X: 8.5
+        Y: 2.5
+      - Class: rviz_default_plugins/TopDownOrtho
+        Invert Z Axis: false
+        Name: Follow robot
+        Near Clip Distance: 0.01
+        Scale: 110
+        Target Frame: base_footprint
+        Value: TopDownOrtho (rviz_default_plugins)
+        X: 0
+        Y: 0
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 1000
+  Width: 1700
+  X: 0
+  Y: 0

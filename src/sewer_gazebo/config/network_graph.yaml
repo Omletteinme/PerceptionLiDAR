@@ -1,0 +1,62 @@
+comment: Topology known a priori. Blockages are NOT listed here; they must be detected.
+start: A
+goal: J4
+corridor_width: 1.0
+nodes:
+  A:
+    x: 0.0
+    y: 0.0
+    type: dead_end
+  J1:
+    x: 8.0
+    y: 0.0
+    type: junction
+  D:
+    x: 8.0
+    y: -5.0
+    type: dead_end
+  J2:
+    x: 8.0
+    y: 6.0
+    type: bend
+  M:
+    x: 12.0
+    y: 6.0
+    type: junction
+  E:
+    x: 12.0
+    y: 10.0
+    type: dead_end
+  J3:
+    x: 16.0
+    y: 6.0
+    type: bend
+  J4:
+    x: 16.0
+    y: 0.0
+    type: bend
+edges:
+- from: A
+  to: J1
+  length: 8.0
+- from: J1
+  to: J4
+  length: 8.0
+- from: J1
+  to: D
+  length: 5.0
+- from: J1
+  to: J2
+  length: 6.0
+- from: J2
+  to: M
+  length: 4.0
+- from: M
+  to: E
+  length: 4.0
+- from: M
+  to: J3
+  length: 4.0
+- from: J3
+  to: J4
+  length: 6.0

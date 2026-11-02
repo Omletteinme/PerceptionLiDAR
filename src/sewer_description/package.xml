@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>sewer_description</name>
+  <version>0.1.0</version>
+  <description>URDF/Xacro model of the sewer-inspection robot (differential drive, IMU, 2D LiDAR).</description>
+  <maintainer email="jeeviteshmishra26@gmail.com">jeevi</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
