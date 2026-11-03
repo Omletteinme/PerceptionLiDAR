@@ -5,23 +5,24 @@ reliability), both particle clouds, both estimates with 1-sigma ellipses, status
 The true pose comes from /ground_truth/odom (frame `world`, tied to `map` by an identity static transform
 below). That is for visualization and evaluation only: the localizers never read it.
 
+  network:=sewer_network_v2   show the v2 prior map
   rviz:=false   start only the map server and the static transform (e.g. headless checks)
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def generate_launch_description():
-    map_yaml = os.path.join(get_package_share_directory('sewer_gazebo'), 'maps', 'sewer_map.yaml')
+def _setup(context):
+    sfx = LaunchConfiguration('network').perform(context)[len('sewer_network'):]
+    map_yaml = os.path.join(get_package_share_directory('sewer_gazebo'), 'maps', f'sewer_map{sfx}.yaml')
     rviz_cfg = os.path.join(get_package_share_directory('sewer_bringup'), 'config', 'view_b.rviz')
-    return LaunchDescription([
-        DeclareLaunchArgument('rviz', default_value='true'),
+    return [
         # Nav2 infrastructure: serves the a-priori map on /map
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen',
              parameters=[{'yaml_filename': map_yaml, 'use_sim_time': True}]),
@@ -35,4 +36,12 @@ def generate_launch_description():
         Node(package='rviz2', executable='rviz2', name='rviz2', output='screen',
              arguments=['-d', rviz_cfg], parameters=[{'use_sim_time': True}],
              condition=IfCondition(LaunchConfiguration('rviz'))),
+    ]
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument('rviz', default_value='true'),
+        DeclareLaunchArgument('network', default_value='sewer_network'),
+        OpaqueFunction(function=_setup),
     ])

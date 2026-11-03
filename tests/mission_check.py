@@ -24,12 +24,13 @@ from sewer_localization.map_utils import OccupancyMap
 
 GZ = '/home/jeevi/sewer_ws/src/sewer_gazebo'
 ROBOT_RADIUS = 0.20     # circumscribed radius incl. wheels
-LOOP = ['J1', 'J2', 'M', 'J3', 'J4']
+NETWORK = sys.argv[3] if len(sys.argv) > 3 else 'sewer_network'    # sewer_network | sewer_network_v2
+SFX = NETWORK[len('sewer_network'):]
 
 
 def true_map():
-    m = OccupancyMap.load(GZ + '/maps/sewer_map')
-    with open(GZ + '/config/blockages_truth.yaml') as f:
+    m = OccupancyMap.load(GZ + f'/maps/sewer_map{SFX}')
+    with open(GZ + f'/config/blockages_truth{SFX}.yaml') as f:
         for b in yaml.safe_load(f)['blockages'].values():
             for p in b['pieces']:
                 m.add_box(p[1], p[2], p[3], p[4]) if p[0] == 'box' else m.add_circle(p[1], p[2], p[3])
@@ -141,7 +142,7 @@ def main():
             json.dump(dict(route_events=n.route_events, blocked_first=n.blocked_first), f)
         rows = np.array(n.gt_traj, float)
         path_len = float(np.hypot(np.diff(rows[:, 1]), np.diff(rows[:, 2])).sum()) if len(rows) > 1 else float('nan')
-        loop = next((e for e in n.route_events if e[1] and 'J2' in e[1] and 'M' in e[1]), None)
+        loop = next((e for e in reversed(n.route_events) if e[1]), None)          # the route of the last replan
         with open(sys.argv[2].replace('.csv', '_summary.json'), 'w') as f:
             json.dump(dict(status=n.status, goal_reached=n.status == 'GOAL_REACHED', mission_time=round(n.t(), 2),
                            t_move=n.t_move,
@@ -172,11 +173,17 @@ def main():
         print(f'-- position error vs ground truth: dead reckoning ({err_stats(12, 13)}) | baseline filter ({err_stats(10, 11)}) '
               f'| reliability-aware filter ({err_stats(3, 4)})')
     print('-- blocked edges first flagged (t, robot gt x, y):', {k: tuple(round(v, 1) for v in val) for k, val in n.blocked_first.items()})
+    with open(f'{GZ}/config/blockages_truth{SFX}.yaml') as f:
+        truth = yaml.safe_load(f)['blockages']
+    with open(f'{GZ}/config/network_graph{SFX}.yaml') as f:
+        graph = yaml.safe_load(f)
+    blocking = {'-'.join(b['edge']): name for name, b in truth.items() if b['blocks_route']}
+    partial = {'-'.join(b['edge']): name for name, b in truth.items() if not b['blocks_route']}
     clusters = {k: (round(v['gap'], 2), round(v['s_min'], 1), round(v['s_max'], 1), v['cells'])
                 for k, v in n.gaps.items() if v['s_min'] is not None}
-    print('-- obstruction clusters at the end (edge: gap, s_min, s_max, cells); real debris is only on J1-J4 and J1-J2:', clusters)
-    b2 = n.gaps.get('J1-J2', {})
-    print(f"-- final gaps: J1-J4 {n.gaps.get('J1-J4', {}).get('gap'):.2f} m, J1-J2 {b2.get('gap', float('nan')):.2f} m offset {b2.get('offset', float('nan')):.2f}")
+    print(f'-- network {NETWORK}: real blocking debris on {sorted(blocking)}, passable debris on {sorted(partial)}')
+    print('-- obstruction clusters at the end (edge: gap, s_min, s_max, cells):', clusters)
+    print('-- final gaps (m):', {k: round(v['gap'], 2) for k, v in n.gaps.items() if k in blocking or k in partial})
 
     if len(rows):
         dt_rows = np.diff(rows[:, 0], append=rows[-1, 0])
@@ -184,27 +191,32 @@ def main():
         print(f'-- localization health: time RELIABLE {share[0]:.0f} s, DEGRADED {share[1]:.0f} s, CRITICAL {share[2]:.0f} s; '
               f'changes (t, state): {n.health_log}')
 
+    gx_goal, gy_goal = graph['nodes'][graph['goal']]['x'], graph['nodes'][graph['goal']]['y']
+    edges_of = lambda nodes: {f'{u}-{v}' for u, v in zip(nodes, nodes[1:])} | {f'{v}-{u}' for u, v in zip(nodes, nodes[1:])}  # noqa: E731
     first = next((nodes for _, nodes, _, _ in n.route_events if nodes), None)
-    last = n.route_events[-1][1] if n.route_events else None
-    check('mission completed', n.status == 'GOAL_REACHED' and math.hypot(gx - 16.0, gy - 0.0) < 0.5,
-          f'{n.status}, gt ({gx:.2f},{gy:.2f}) vs goal J4 (16,0)')
-    # the observer may start a moment after the robot leaves A, so the first route seen is A-J1-J4 or J1-J4
-    check('started on the short direct route (blockage unknown)', bool(first) and first[-2:] == ['J1', 'J4'], f'{first}')
-    check('blockage B1 (edge J1-J4) detected', 'J1-J4' in n.blocked_first, f'{n.blocked_first.get("J1-J4")}')
-    if 'J1-J4' in n.blocked_first:
-        check('B1 detected before the robot reached junction J1 (gt x < 7.5)', n.blocked_first['J1-J4'][1] < 7.5,
-              f'robot at x={n.blocked_first["J1-J4"][1]:.1f}')
-    loop_event = next(((t, nodes) for t, nodes, _, _ in n.route_events if nodes and 'J2' in nodes and 'M' in nodes), None)
-    check('rerouted around the blockage via the loop (J1-J2-M-J3-J4)',
-          loop_event is not None and loop_event[1][-4:] == ['M', 'J3', 'J4'] or
-          (loop_event is not None and loop_event[1][-5:] == LOOP),
-          f'first loop route at t={loop_event[0]:.1f} s: {loop_event[1]}' if loop_event else 'never switched to the loop')
-    if loop_event and 'J1-J4' in n.blocked_first:
-        check('replanned within 3 s of the detection', 0 <= loop_event[0] - n.blocked_first['J1-J4'][0] < 3.0,
-              f'{loop_event[0] - n.blocked_first["J1-J4"][0]:.1f} s after detection')
-    check('no phantom blockage (only J1-J4 ever flagged blocked)', set(n.blocked_first) <= {'J1-J4'}, f'{sorted(n.blocked_first)}')
-    check('partial obstruction B2 (J1-J2) seen as passable and narrow', 0.5 <= b2.get('gap', 9) < 0.8 and not b2.get('blocked', True),
-          f"gap {b2.get('gap')}")
+    check('mission completed', n.status == 'GOAL_REACHED' and math.hypot(gx - gx_goal, gy - gy_goal) < 0.5,
+          f"{n.status}, gt ({gx:.2f},{gy:.2f}) vs goal {graph['goal']} ({gx_goal:g},{gy_goal:g})")
+    # the observer may start a moment after the robot leaves A, so the first route seen may begin at J1
+    check('started on a route through the (still unknown) blocking debris', bool(first) and bool(edges_of(first) & set(blocking)),
+          f'{first}')
+    for edge, name in sorted(blocking.items()):
+        pcs = truth[name]['pieces']
+        cx, cy = float(np.mean([p[1] for p in pcs])), float(np.mean([p[2] for p in pcs]))
+        det = n.blocked_first.get(edge)
+        check(f'blockage {name} (edge {edge}) detected', det is not None, f'{det}')
+        if det is None:
+            continue
+        check(f'{name} detected from at least 2 m away', math.hypot(det[1] - cx, det[2] - cy) >= 2.0,
+              f'robot was {math.hypot(det[1] - cx, det[2] - cy):.1f} m from it')
+        new = next(((t, nodes) for t, nodes, _, _ in n.route_events if t >= det[0] and nodes and edge not in edges_of(nodes)), None)
+        check(f'replanned around {name} within 3 s of the detection', new is not None and new[0] - det[0] < 3.0,
+              f'{new[0] - det[0]:.1f} s after detection, new route {new[1]}' if new else 'never left the blocked edge')
+    check('no phantom blockage (only the real blocking edges flagged)', set(n.blocked_first) <= set(blocking),
+          f'{sorted(n.blocked_first)}')
+    for edge, name in sorted(partial.items()):
+        g = n.gaps.get(edge, {})
+        check(f'partial obstruction {name} ({edge}) seen as passable and narrow',
+              0.5 <= g.get('gap', 9) < 0.8 and not g.get('blocked', True), f"gap {g.get('gap')}")
     c = n.collisions
     check('no collision (Gazebo contact sensors: walls, debris)', c['total'] == 0,
           f"{c['total']} counted (walls {c['wall']}, debris {c['debris']}, other {c['other']}), contact time {c['contact_time']} s, "

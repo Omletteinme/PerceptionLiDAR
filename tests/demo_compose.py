@@ -48,19 +48,21 @@ health, R = df['health'].to_numpy(), df['R'].to_numpy()
 
 # ---- captions from the mission events (mission time, text)
 caps = [(-1e9, 'The robot enters the sewer network')]
-b1 = summary['blocked_first'].get('J1-J4')
-if b1:
-    caps.append((b1[0], 'LiDAR sees debris blocking the short route: edge J1-J4 marked blocked'))
-loop = next((e for e in events['route_events'] if e[1] and 'J2' in e[1] and 'M' in e[1]), None)
-if loop:
-    caps.append((loop[0], 'Safer route planned around the blockage: J1 > J2 > M > J3 > J4'))
+for edge, det in summary['blocked_first'].items():
+    caps.append((det[0], f'LiDAR sees debris blocking the route: edge {edge} marked blocked'))
+prev = None
+for t, nodes, _, _ in events['route_events']:
+    if nodes:
+        if prev is not None and nodes != prev[-len(nodes):]:          # not just the old route getting shorter: a replan
+            caps.append((t, 'Safer route planned around the blockage: ' + ' > '.join(nodes)))
+        prev = nodes
 last_state = 0
 for t, state in summary['health_log']:
     name = {'DEGRADED': 'Readings becoming unreliable (water / spray / slip): robot slows down',
             'CRITICAL': 'Readings very unreliable: robot waits, the filter holds the estimate',
             'RELIABLE': 'Readings reliable again: robot continues at full speed'}[state]
     caps.append((t, name))
-caps.append((summary['mission_time'] - 1.0, 'Goal J4 reached' if summary['goal_reached'] else 'Mission ended without reaching the goal'))
+caps.append((summary['mission_time'] - 1.0, f"Goal {summary.get('route_nodes', ['J4'])[-1]} reached" if summary['goal_reached'] else 'Mission ended without reaching the goal'))
 for t_sim, model in summary['collisions']['events']:
     caps.append((t_sim - summary['t_move'], f'Contact with {model}'))
 caps.sort()

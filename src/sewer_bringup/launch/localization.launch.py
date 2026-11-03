@@ -7,6 +7,7 @@
   severity, seed       disturbance severity multiplier and RNG seed (repeatable).
   odom_disturbed:=true insert odom_disturbance_node (scale errors, gyro bias, wheel-slip bursts) and feed the localizers
                        /odom_disturbed and /imu_disturbed; map->odom is still composed against the true /odom.
+  network              sewer_network (default) or sewer_network_v2: which prior map the filters use
   odom_severity        slip severity (0 = no slip bursts); odom_scale multiplies the per-run odometry errors.
 
 Both localizers and the disturbance nodes are CUSTOM nodes (sewer_localization).
@@ -23,8 +24,9 @@ from launch_ros.actions import Node
 def _setup(context):
     cfg = {k: LaunchConfiguration(k).perform(context)
            for k in ('filter', 'disturbed', 'severity', 'seed', 'n_particles', 'odom_disturbed', 'odom_severity',
-                     'odom_scale')}
-    map_path = os.path.join(get_package_share_directory('sewer_gazebo'), 'maps', 'sewer_map')
+                     'odom_scale', 'network')}
+    map_path = os.path.join(get_package_share_directory('sewer_gazebo'), 'maps',
+                            'sewer_map' + cfg['network'][len('sewer_network'):])
     disturbed = cfg['disturbed'].lower() == 'true'
     scan_topic = '/scan_disturbed' if disturbed else '/scan'
     actions = []
@@ -64,5 +66,6 @@ def generate_launch_description():
         DeclareLaunchArgument('odom_disturbed', default_value='false'),
         DeclareLaunchArgument('odom_severity', default_value='1.0'),
         DeclareLaunchArgument('odom_scale', default_value='1.0'),
+        DeclareLaunchArgument('network', default_value='sewer_network'),
         OpaqueFunction(function=_setup),
     ])
