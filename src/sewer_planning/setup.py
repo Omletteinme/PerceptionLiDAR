@@ -21,6 +21,7 @@ setup(
             'route_planner_node = sewer_planning.route_planner_node:main',
             'route_follower_node = sewer_planning.route_follower_node:main',
             'exploration_node = sewer_planning.exploration_node:main',
+            'mission_manager_node = sewer_planning.mission_manager_node:main',
         ],
     },
 )
