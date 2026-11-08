@@ -126,3 +126,14 @@ With `filter:=both` only the reliability-aware localizer publishes `map -> odom`
 | `/cmd_vel` | `geometry_msgs/Twist` | `route_follower_node` (pure pursuit on the ESTIMATED pose) |
 
 Run: `ros2 launch sewer_bringup mission.launch.py` after `robot_sim.launch.py` and `localization.launch.py filter:=both` (the /reliability/* topics are inputs).
+
+## Topic interface additions (Account 1, Phase 1: exploration + coverage)
+
+| Topic | Type | Source |
+|---|---|---|
+| `/route` | `nav_msgs/Path` (map frame) | `exploration_node` (replaces `route_planner_node` in exploration missions; still one motion commander: the follower) |
+| `/exploration/status` | `std_msgs/String` (JSON: state INIT/EXPLORING/RETURNING/COMPLETE/INCOMPLETE, reason, frontiers, active_segment, target, candidates, localization) | `exploration_node` |
+| `/coverage/status` | `std_msgs/String` (JSON: coverage, confidence, explored/accessible/blocked/unreachable/skipped/total metres, segments, per-edge states) | `exploration_node` |
+| `/coverage/markers` | `visualization_msgs/MarkerArray` | `exploration_node`: corridor bins coloured explored/unexplored/blocked/skipped |
+
+Run: `ros2 launch sewer_bringup exploration.launch.py network:=sewer_network_v2` after `robot_sim.launch.py` and `localization.launch.py filter:=both`. The follower runs with `rearm_on_new_goal:=true` (default false elsewhere). Sandbox: `python3 sandbox/explore_sim.py --seed 0`.

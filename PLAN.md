@@ -366,3 +366,13 @@ Request: a more complex map, "a bit of layout, more of looks". Decisions: add a 
 - Debugging lesson: four stale project nodes (two localizers, planner, follower) left over from an earlier stopped run drove the parked robot away in every later simulator and made scan tests meaningless for an hour. Always list what is left (`ps -eo pid,etime,cmd | grep sewer_ws/install`) before a test; `tests/` cleanup scripts only kill by name.
 - Open: the demo video was not re-recorded on v2 (the scripts `demo_record.sh`, `demo_viewb.sh`, `demo_compose.py` are ready); five temporary test worlds (`tmp_*.sdf`) from the LiDAR investigation are still in `src/sewer_gazebo/worlds/` and should be deleted; nothing of this is committed or pushed.
 
+
+
+### Account 1, Phase 1: exploration + coverage (2026-11-08)
+
+Build plan: two-account extension (Account 1 = mapping, navigation, mission control). Additive only: localization, reliability, disturbances, EvidenceGrid, RouteModel and the existing launch files are unchanged.
+
+- Decisions: exploration runs on the known corridor graph (no SLAM, as the build plan says for Phase 1). Coverage unit = 0.5 m bin along a corridor, covered when the ESTIMATED pose passes within 0.6 m while localization is not CRITICAL. A detected full blockage splits its corridor into two dead-end stubs; the robot stops 0.6 m short of the debris. Frontier choice = cheapest entry by the existing uncertainty-aware RouteModel cost (only the 3 nearest entry nodes by plain path length are fully costed, for speed). Done = every accessible bin explored, then return to the entrance (COMPLETE), or INCOMPLETE with a reason if bins had to be skipped.
+- Files: `sewer_planning/{coverage_tracker,exploration,exploration_node}.py`, `sewer_bringup/launch/exploration.launch.py`, `sandbox/explore_sim.py` (closed loop: PF -> detector -> explorer -> pure pursuit; truth only for sensors and offline scoring), `sandbox/tests/test_exploration.py`. `route_follower_node` got an opt-in `rearm_on_new_goal` (default false).
+- Results (sandbox, clean sensors): v2 blocked seeds 0 and 1, v2 clear seed 2, classic blocked seed 0: all COMPLETE, 100 % tracker and truth-scored coverage, exactly the true blocking edges detected, min wall clearance >= 0.25 m. 78 sandbox tests pass (64 + 14).
+- Not verified: the ROS node and launch file were not run (no ROS on the machine used); exploration under scan disturbance / wheel slip not evaluated yet.
