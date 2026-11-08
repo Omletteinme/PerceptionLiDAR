@@ -65,76 +65,105 @@ def densify(pts, spacing=0.2):
     return np.array(dense)
 
 
+class SimRobot:
+    """One simulated robot: TRUE unicycle + sensors, and the robot's own localizer and blockage detector.
+
+    The TRUE state (x, y, th) and the true map are only used to simulate the sensors (and by evaluators). Everything
+    the robot decides with comes from `estimate()` and `edge_status()`.
+    """
+
+    def __init__(self, prior, true, graph, seed=0, pf_params=None):
+        self.prior, self.true, self.g = prior, true, graph
+        self.rng = np.random.default_rng(seed)
+        self.x, self.y = graph.nodes[graph.start]
+        self.th = self.v = self.w = 0.0
+        self.pfp = pf_params or PFParams()
+        self.f = ReliabilityAwareFilter(prior, self.pfp, np.random.default_rng(seed + 1000),
+                                        (self.x, self.y, self.th), ANGLES)
+        self.grid = EvidenceGrid(prior)
+        self.odo = OdometryErrorModel(self.rng, ())   # per-run scale errors + gyro bias walk, no slip zones
+        self.travelled, self.t = 0.0, 0.0
+        self.log = dict(true=[], est=[], clearance=[])
+
+    def estimate(self):
+        return self.f.estimate()
+
+    def edge_status(self):
+        g = self.g
+        return {Graph.key(e): self.grid.edge_status(g.nodes[e[0]], g.nodes[e[1]]) for e in g.edges}
+
+    def command(self, path, vmax=0.35):
+        """route_follower_node's command law (pure pursuit) on the ESTIMATED pose. path None/empty = stop."""
+        xe, ye, the, _ = self.f.estimate()
+        if path is None or len(path) == 0:
+            return 0.0, 0.0
+        goal = path[-1]
+        dist_goal = math.hypot(goal[0] - xe, goal[1] - ye)
+        if dist_goal < 0.2:
+            return 0.0, 0.0
+        tgt = pursuit_target(path, xe, ye, 0.5)
+        alpha = sim2d.wrap(math.atan2(tgt[1] - ye, tgt[0] - xe) - the)
+        if abs(alpha) > 0.6:
+            return 0.0, max(-1.0, min(1.0, 1.5 * alpha))
+        return min(vmax * max(0.3, 1.0 - abs(alpha)), 0.5 * dist_goal + 0.1), max(-1.0, min(1.0, 2.0 * alpha))
+
+    def step(self, v_cmd, w_cmd):
+        """Advance one LiDAR period: TRUE kinematics, odometry, scan, localization, blockage evidence."""
+        x, y, th = self.x, self.y, self.th
+        self.v += max(-1.0 * DT, min(1.0 * DT, v_cmd - self.v))     # accel limits as in sim2d.trajectory
+        self.w += max(-2.0 * DT, min(2.0 * DT, w_cmd - self.w))
+        v, w = self.v, self.w
+        nx, ny = x + v * DT * math.cos(th + 0.5 * w * DT), y + v * DT * math.sin(th + 0.5 * w * DT)
+        if self.true.dist(np.array([nx]), np.array([ny]))[0] < 0.05:   # hard wall: the body cannot enter it
+            nx, ny, self.v = x, y, 0.0
+        ds, dth = math.hypot(nx - x, ny - y) * (1 if v >= 0 else -1), w * DT
+        self.x, self.y, self.th = nx, ny, sim2d.wrap(th + dth)
+        ds_m, dthw_m, dthg_m = self.odo.step(ds, dth, DT, self.travelled)
+        self.travelled += abs(ds)
+        x, y, th = self.x, self.y, self.th
+        z = self.true.raycast(x + sim2d.LIDAR_X * math.cos(th), y + sim2d.LIDAR_X * math.sin(th), th + ANGLES,
+                              sim2d.RMAX, sim2d.RMIN)
+        fin = np.isfinite(z)
+        z[fin] += self.rng.normal(0, sim2d.LIDAR_SIGMA, fin.sum())
+        z[z >= sim2d.RMAX] = np.inf
+        self.f.predict(ds_m, fuse_heading(dthw_m, dthg_m, self.pfp.gyro_weight))
+        self.f.update(z, ANGLES)
+        xe, ye, the, _ = self.f.estimate()
+        self.grid.update((xe, ye, the), z, ANGLES, self.f.r)
+        self.t += DT
+        self.log['true'].append((x, y, th))
+        self.log['est'].append((xe, ye, the))
+        self.log['clearance'].append(float(self.true.dist(np.array([x]), np.array([y]))[0]))
+
+    def metrics(self):
+        true_xy, est_xy = np.array(self.log['true'])[:, :2], np.array(self.log['est'])[:, :2]
+        return dict(true=np.array(self.log['true']), est=np.array(self.log['est']), sim_time=len(self.log['true']) * DT,
+                    min_clearance=min(self.log['clearance']) if self.log['clearance'] else float('inf'),
+                    pos_rmse=float(np.sqrt(np.mean(np.sum((true_xy - est_xy) ** 2, axis=1)))))
+
+
 def run(seed=0, network='sewer_network_v2', world='blocked', t_max=900.0, vmax=0.35, verbose=False):
     prior, true, graph, truth = load_network(network, world)
-    rng = np.random.default_rng(seed)
-    sx, sy = graph.nodes[graph.start]
-    x, y, th, v, w = sx, sy, 0.0, 0.0, 0.0
-    f = ReliabilityAwareFilter(prior, PFParams(), np.random.default_rng(seed + 1000), (x, y, th), ANGLES)
-    grid = EvidenceGrid(prior)
-    model = RouteModel(graph, prior)
-    ex = Explorer(graph, model)
-    odo = OdometryErrorModel(rng, ())          # per-run scale errors + gyro bias walk, no slip zones
-    travelled, path, res = 0.0, None, None
-    log = dict(true=[], est=[], state=[], clearance=[])
+    robot = SimRobot(prior, true, graph, seed)
+    ex = Explorer(graph, RouteModel(graph, prior))
+    path, res, states = None, None, []
     t0 = time.time()
-    n_steps = int(t_max / DT)
-    for k in range(n_steps):
-        xe, ye, the, cov = f.estimate()
+    for k in range(int(t_max / DT)):
         if k % 5 == 0:                         # explorer at 2 Hz, like the ROS node
-            status = {Graph.key(e): grid.edge_status(graph.nodes[e[0]], graph.nodes[e[1]]) for e in graph.edges}
-            res = ex.step((xe, ye), cov[:2, :2], f.R, status)
-            if verbose and (k % 100 == 0 or res['state'] != (log['state'][-1][1] if log['state'] else None)):
+            xe, ye, _, cov = robot.estimate()
+            res = ex.step((xe, ye), cov[:2, :2], robot.f.R, robot.edge_status())
+            if verbose and (k % 100 == 0 or res['state'] != (states[-1][1] if states else None)):
                 print(f't={k * DT:6.1f} {res["state"]:10s} cov={ex.tracker.summary()["coverage"]:.3f} '
                       f'target={res["target"]} frontiers={res["frontiers"]}')
-            log['state'].append((k * DT, res['state']))
+            states.append((k * DT, res['state']))
             if res['state'] in (COMPLETE, INCOMPLETE):
                 break
             path = densify(res['waypoints']) if res['waypoints'] else None
-        # ---- controller: route_follower_node's command law on the ESTIMATED pose
-        v_cmd = w_cmd = 0.0
-        if path is not None and len(path) >= 1:
-            goal = path[-1]
-            dist_goal = math.hypot(goal[0] - xe, goal[1] - ye)
-            if dist_goal >= 0.2:
-                tgt = pursuit_target(path, xe, ye, 0.5)
-                alpha = sim2d.wrap(math.atan2(tgt[1] - ye, tgt[0] - xe) - the)
-                if abs(alpha) > 0.6:
-                    w_cmd = max(-1.0, min(1.0, 1.5 * alpha))
-                else:
-                    v_cmd = min(vmax * max(0.3, 1.0 - abs(alpha)), 0.5 * dist_goal + 0.1)
-                    w_cmd = max(-1.0, min(1.0, 2.0 * alpha))
-        # ---- TRUE kinematics (accel limits as in sim2d.trajectory)
-        v += max(-1.0 * DT, min(1.0 * DT, v_cmd - v))
-        w += max(-2.0 * DT, min(2.0 * DT, w_cmd - w))
-        nx, ny = x + v * DT * math.cos(th + 0.5 * w * DT), y + v * DT * math.sin(th + 0.5 * w * DT)
-        if true.dist(np.array([nx]), np.array([ny]))[0] < 0.05:   # hard wall: the body cannot enter it
-            nx, ny, v = x, y, 0.0
-        ds, dth = math.hypot(nx - x, ny - y) * (1 if v >= 0 else -1), w * DT
-        x, y, th = nx, ny, sim2d.wrap(th + dth)
-        ds_m, dthw_m, dthg_m = odo.step(ds, dth, DT, travelled)
-        travelled += abs(ds)
-        # ---- LiDAR on the TRUE world, then localization and blockage evidence on the ESTIMATE
-        z = true.raycast(x + sim2d.LIDAR_X * math.cos(th), y + sim2d.LIDAR_X * math.sin(th), th + ANGLES,
-                         sim2d.RMAX, sim2d.RMIN)
-        fin = np.isfinite(z)
-        z[fin] += rng.normal(0, sim2d.LIDAR_SIGMA, fin.sum())
-        z[z >= sim2d.RMAX] = np.inf
-        f.predict(ds_m, fuse_heading(dthw_m, dthg_m, PFParams().gyro_weight))
-        f.update(z, ANGLES)
-        xe, ye, the, _ = f.estimate()
-        grid.update((xe, ye, the), z, ANGLES, f.r)
-        log['true'].append((x, y, th))
-        log['est'].append((xe, ye, the))
-        log['clearance'].append(float(true.dist(np.array([x]), np.array([y]))[0]))
-    status = {Graph.key(e): grid.edge_status(graph.nodes[e[0]], graph.nodes[e[1]]) for e in graph.edges}
-    true_xy, est_xy = np.array(log['true'])[:, :2], np.array(log['est'])[:, :2]
-    return dict(result=res, summary=ex.tracker.summary(), graph=graph, truth=truth, status=status,
-                true=np.array(log['true']), est=np.array(log['est']), states=log['state'],
-                sim_time=len(log['true']) * DT, wall_time=time.time() - t0,
-                min_clearance=min(log['clearance']) if log['clearance'] else float('inf'),
-                pos_rmse=float(np.sqrt(np.mean(np.sum((true_xy - est_xy) ** 2, axis=1)))),
-                blocked=sorted(k for k, s in status.items() if s['blocked']))
+        robot.step(*robot.command(path, vmax))
+    status = robot.edge_status()
+    return dict(result=res, summary=ex.tracker.summary(), graph=graph, truth=truth, status=status, states=states,
+                wall_time=time.time() - t0, blocked=sorted(k for k, s in status.items() if s['blocked']),
+                **robot.metrics())
 
 
 def truth_coverage(graph, truth, true_xy, bin_len=0.5, sense=0.6, debris_margin=0.9):

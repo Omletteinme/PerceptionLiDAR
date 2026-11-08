@@ -137,3 +137,16 @@ Run: `ros2 launch sewer_bringup mission.launch.py` after `robot_sim.launch.py` a
 | `/coverage/markers` | `visualization_msgs/MarkerArray` | `exploration_node`: corridor bins coloured explored/unexplored/blocked/skipped |
 
 Run: `ros2 launch sewer_bringup exploration.launch.py network:=sewer_network_v2` after `robot_sim.launch.py` and `localization.launch.py filter:=both`. The follower runs with `rearm_on_new_goal:=true` (default false elsewhere). Sandbox: `python3 sandbox/explore_sim.py --seed 0`.
+
+## Topic interface additions (Account 1, Phase 3: Mission Manager; schemas PROPOSED, see docs/mission_interfaces.md)
+
+| Topic | Type | Source |
+|---|---|---|
+| `/route` | `nav_msgs/Path` (map frame; empty = stop) | `mission_manager_node` (replaces route_planner/exploration nodes in full missions) |
+| `/mission/state` | `std_msgs/String` (JSON: state, reason, target, localization) | `mission_manager_node` |
+| `/mission/task` | `std_msgs/String` (JSON MissionTask: task_id, type PICKUP/DISPOSE/STOP, object_id, target, action; latched) | `mission_manager_node` -> Account 2 |
+| `/mission/report` | `std_msgs/String` (JSON: coverage, debris detected/removed/failed/rejected with reasons, ranking, defects, counts, events) | `mission_manager_node` |
+| `/perception/debris`, `/perception/defects` | `std_msgs/String` (JSON, map frame only) | Account 2 -> mission |
+| `/manipulation/status`, `/disposal/status` | `std_msgs/String` (JSON; `verified` only from simulated physical evidence) | Account 2 -> mission |
+
+Run: `ros2 launch sewer_bringup mission_manager.launch.py` after `robot_sim.launch.py` and `localization.launch.py filter:=both`. Sandbox: `python3 sandbox/mission_sim.py --seed 0` (perception/arm are SANDBOX STAND-INS in `sandbox/mission_standins.py`).
