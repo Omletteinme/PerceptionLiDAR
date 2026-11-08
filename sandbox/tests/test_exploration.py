@@ -179,3 +179,43 @@ def test_closed_loop_returns_to_entrance_without_scraping(closed_loop):
     end = out['true'][-1, :2]
     assert np.hypot(*(end - np.array(out['graph'].nodes['A']))) < 0.5
     assert out['min_clearance'] > explore_sim.ROBOT_HALF_W
+
+
+# ------------------------------------------------------------------ Phase 5 regressions (disturbed sandbox runs)
+B2_PHANTOM = {'J1-J2': dict(gap=0.3, blocked=True, s_min=2.8, s_max=3.6, offset=-0.2, observed=0.6, cells=30)}
+
+
+def test_blockage_the_robot_drove_through_is_passable(model):
+    """Heavy disturbance turned passable debris B2 into a 'full blockage' after the robot had driven past it."""
+    ex = Explorer(GRAPH, model)
+    for y in np.arange(0.5, 5.6, 0.1):                       # drove J1 -> J2 along the corridor
+        ex.observe((8.0, y))
+    eff = ex.effective_status(B2_PHANTOM)
+    assert not eff['J1-J2']['blocked'] and eff['J1-J2']['traversed']
+    ex2 = Explorer(GRAPH, model)
+    for y in np.arange(0.5, 2.5, 0.1):                       # only reached the debris, never passed it
+        ex2.observe((8.0, y))
+    assert ex2.effective_status(B2_PHANTOM)['J1-J2']['blocked']
+    ex3 = Explorer(GRAPH, model)
+    for y in np.arange(0.5, 5.6, 0.1):
+        ex3.observe((8.0, y), trusted=False)                 # doubtful pose: no evidence of passage
+    assert ex3.effective_status(B2_PHANTOM)['J1-J2']['blocked']
+
+
+def test_robot_cut_off_behind_a_blockage_still_counts_its_surroundings(model):
+    """Accessibility from the entrance only made everything around a cut-off robot 'unreachable' (coverage 18/18 m)."""
+    status = dict(B2_PHANTOM, **{'J1-J4': BLOCK_J1J4['J1-J4']})
+    t = CoverageTracker(GRAPH)
+    t.set_status(status)
+    from_entrance = t.summary()['accessible_m']
+    t.set_status(status, seeds=['J2'])
+    assert t.summary()['accessible_m'] > from_entrance + 20
+
+
+def test_no_route_home_is_not_complete(model):
+    ex = Explorer(GRAPH, model)
+    for e in GRAPH.edges:
+        ex.tracker.explored[e][:] = True
+    status = dict(B2_PHANTOM, **{'J1-J4': BLOCK_J1J4['J1-J4']})
+    r = ex.step(GRAPH.nodes['M'], None, 0.95, status)       # robot never drove J1-J2 here: the cut is unexplained
+    assert r['state'] == 'NO_ROUTE_HOME' and r['waypoints'] is None and 'entrance' in r['reason']

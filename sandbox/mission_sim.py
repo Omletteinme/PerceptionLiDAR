@@ -27,13 +27,14 @@ from sewer_planning.route_cost import RouteModel  # noqa: E402
 DT = explore_sim.DT
 
 
-def run(seed=0, network='sewer_network_v2', t_max=1500.0, fail=None, manipulator=True, verbose=False, pf_n=500):
+def run(seed=0, network='sewer_network_v2', t_max=1500.0, fail=None, manipulator=True, verbose=False, pf_n=500,
+        severity=0.0, slip=0.0):
     prior, true, graph, truth = explore_sim.load_network(network, 'blocked')
     sc = scenario_v2(truth)
     for d in sc.debris:                         # loose objects taller than the scan plane are seen by the LiDAR too
         if d.category != 'rubble_pile' and d.size[2] > 0.13:
             true.add_box(d.x, d.y, d.size[0], d.size[1])
-    robot = explore_sim.SimRobot(prior, true, graph, seed, PFParams(n=pf_n))
+    robot = explore_sim.SimRobot(prior, true, graph, seed, PFParams(n=pf_n), severity=severity, slip=slip)
     mm = MissionManager(graph, RouteModel(graph, prior), params=MissionParams(require_manipulator=manipulator,
                                                                               init_timeout=3.0))
     rng = np.random.default_rng(seed + 7)
@@ -48,7 +49,7 @@ def run(seed=0, network='sewer_network_v2', t_max=1500.0, fail=None, manipulator
             xe, ye, _, cov = robot.estimate()
             debris, _ = parse_debris(perc.debris_json(now, robot.x, robot.y))
             defects, _ = parse_defects(perc.defects_json(now, robot.x, robot.y))
-            res = mm.tick(now, (xe, ye), now, cov[:2, :2], robot.f.R, 'RELIABLE', robot.edge_status(), debris,
+            res = mm.tick(now, (xe, ye), now, cov[:2, :2], robot.f.R, robot.health.state, robot.edge_status(), debris,
                           defects, parse_manipulation(arm.manipulation_json(now)) if manipulator else None,
                           parse_disposal(arm.disposal_json(now)) if manipulator else None)
             if res['task'] is not None:
@@ -75,10 +76,13 @@ def main():
     ap.add_argument('--t-max', type=float, default=1500.0)
     ap.add_argument('--fail', default='', help='e.g. S3=1,S1=2: grasp attempts that fail per object')
     ap.add_argument('--no-manipulator', action='store_true')
+    ap.add_argument('--severity', type=float, default=0.0, help='scan disturbance severity (0 = clean)')
+    ap.add_argument('--slip', type=float, default=0.0, help='wheel-slip severity (0 = none)')
     ap.add_argument('--report', default='', help='write the final mission report JSON here')
     a = ap.parse_args()
     fail = {kv.split('=')[0]: int(kv.split('=')[1]) for kv in a.fail.split(',') if kv}
-    out = run(a.seed, t_max=a.t_max, fail=fail, manipulator=not a.no_manipulator, verbose=True)
+    out = run(a.seed, t_max=a.t_max, fail=fail, manipulator=not a.no_manipulator, verbose=True, severity=a.severity,
+              slip=a.slip)
     r = out['report']
     print(f"\nfinal {r['state']} ({r['reason']}) after {out['sim_time']:.0f} s sim, {out['wall_time']:.0f} s wall")
     print('coverage', r['coverage']['coverage'], 'counts', r['counts'])
@@ -86,7 +90,8 @@ def main():
     print('failed', r['debris']['failed'])
     print('rejected', r['debris']['rejected'])
     print('defects', [(d['id'], d['type'], d['severity']) for d in r['defects']])
-    print(f"min wall clearance {out['min_clearance']:.3f} m, pose RMSE {out['pos_rmse']:.3f} m")
+    print(f"min wall clearance {out['min_clearance']:.3f} m, pose RMSE {out['pos_rmse']:.3f} m "
+          f"(max {out['max_pos_err']:.3f}), health time {out['health_time']}")
     print('true disposal:', {d.id: d.disposed for d in out['scenario'].debris})
     if a.report:
         with open(a.report, 'w') as f:
