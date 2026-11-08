@@ -33,8 +33,11 @@ class RouteFollowerNode(Node):
         self.lookahead = float(d('lookahead', 0.5).value)
         self.goal_tol = float(d('goal_tol', 0.2).value)
         health_topic = d('health_topic', '').value                # '' = ignore the localization health
+        # Exploration missions send a new goal after each one is reached: with rearm_on_new_goal the follower accepts a
+        # route whose end point differs from the reached goal. Default False keeps the original single-goal behaviour.
+        self.rearm = bool(d('rearm_on_new_goal', False).value)
         self.health, self.critical_since = 'RELIABLE', None
-        self.pose, self.path, self.reached = None, None, False
+        self.pose, self.path, self.reached, self.reached_at = None, None, False, None
         self.create_subscription(PoseWithCovarianceStamped, pose_topic, self.on_pose, qos_profile_sensor_data)
         self.create_subscription(Path, 'route', self.on_path, 10)
         if health_topic:
@@ -57,6 +60,9 @@ class RouteFollowerNode(Node):
 
     def on_path(self, m):
         self.path = np.array([[p.pose.position.x, p.pose.position.y] for p in m.poses]) if m.poses else None
+        if self.rearm and self.reached and self.path is not None and self.reached_at is not None and \
+                math.hypot(*(self.path[-1] - self.reached_at)) > self.goal_tol:
+            self.reached = False
 
     def status(self):
         if self.reached:
@@ -76,7 +82,7 @@ class RouteFollowerNode(Node):
         goal = pts[-1]
         dist_goal = math.hypot(goal[0] - x, goal[1] - y)
         if dist_goal < self.goal_tol:
-            self.reached = True
+            self.reached, self.reached_at = True, np.array(goal, float)
             self.get_logger().info('goal reached')
             return self.stop()
         target = pursuit_target(pts, x, y, self.lookahead)
