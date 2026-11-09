@@ -98,6 +98,18 @@ timeline and time spent in each state.
 | reach from stand-off point | ≥ 0.65 m assumed | stand-off is 0.25 m before the near face, and the follower stops within 0.2 m of its goal |
 | disposal station | entrance node `A` (0, 0), zone radius 0.6 m assumed | the robot drives there carrying the object |
 
+All of these live in `src/sewer_planning/config/mission.yaml` (loaded by `mission_manager.launch.py`). When a station
+model is placed outside the entrance, set `use_station_xy: true` and `station_xy`. The point must lie on or next to a
+corridor so the route planner can reach it.
+
+## Carrying (Phase 5)
+
+While carrying, the Mission Manager needs a free gap of `max(robot width 0.30 m, object's smaller horizontal size)
++ 2 × 0.05 m`. Corridors whose detected gap is narrower count as blocked on the way back (`carry_status` in
+`task_prioritizer.py`). The same check rejects a target up front if no wide-enough route back exists. With the
+current placeholder limits, the carry width is at most 0.40 m, which is below the detector's own 0.50 m blocking
+threshold, so this only changes behaviour if Account 2's arm carries objects wider, or the clearance is raised.
+
 ## Priority rule (Account 1, `task_prioritizer.py`)
 
 1. Hard filters, in this order, each with its recorded reason: stale, low confidence (< 0.5), ungraspable (from perception or size), pickup already failed twice, unreachable, no route back to the station, does not fit through the narrowest gap on the way back.

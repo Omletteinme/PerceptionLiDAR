@@ -23,10 +23,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .exploration import COMPLETE, INCOMPLETE, Explorer
+from .exploration import COMPLETE, INCOMPLETE, NO_ROUTE_HOME, Explorer
 from .mission_interfaces import MissionTask
 from .point_route import plan_to_point
-from .task_prioritizer import TaskPrioritizer
+from .task_prioritizer import TaskPrioritizer, carry_status
 
 INITIALIZE, EXPLORE, PRIORITIZE_TASKS = 'INITIALIZE', 'EXPLORE', 'PRIORITIZE_TASKS'
 NAVIGATE_TO_DEBRIS, PICKUP, VERIFY_PICKUP = 'NAVIGATE_TO_DEBRIS', 'PICKUP', 'VERIFY_PICKUP'
@@ -55,6 +55,7 @@ class MissionParams:
     max_nav_failures: int = 3           # consecutive ticks without a route before a target is unreachable
     critical_max: float = 60.0          # [s] of continuous CRITICAL localization before SAFE_STOP
     reprioritize_period: float = 2.0    # [s] between debris re-evaluations while exploring
+    stranded_timeout: float = 60.0      # [s] waiting for a route back to the entrance (evidence may clear) -> SAFE_STOP
 
 
 class MissionManager:
@@ -77,6 +78,7 @@ class MissionManager:
         self.events, self.state_time, self.distance = [], {}, 0.0
         self.manipulation_enabled = True
         self.recoveries, self.input_errors, self.pickup_requests = 0, [], 0
+        self.resumptions, self.carry_route, self.stranded_since = [], None, None
         self._last_xy, self._last_t, self.explore_result = None, None, None
 
     # ------------------------------------------------------------------ helpers
@@ -164,6 +166,9 @@ class MissionManager:
             if self.state == LOCALIZATION_RECOVERY:
                 self._go(now, self.resume_state or EXPLORE, 'localization recovered')
 
+        # the robot's own traversals override blockages it has already driven through (Explorer.effective_status)
+        self.explorer.observe(xy, trusted=health != 'CRITICAL')
+        status = self.explorer.effective_status(status)
         handler = getattr(self, '_s_' + self.state.lower())
         handler(now, xy, cov, R, health, status, out)
         return self._out(out)
@@ -207,6 +212,16 @@ class MissionManager:
             if self._prioritize(now, xy, cov, R, status):
                 self._go(now, PRIORITIZE_TASKS, 'feasible debris found')
                 return self._s_prioritize_tasks(now, xy, cov, R, health, status, out, fresh=True)
+        if res['state'] == NO_ROUTE_HOME:
+            # nothing left to explore, but the way back is blocked: wait (blockage evidence can clear), never succeed
+            self.stranded_since = now if self.stranded_since is None else self.stranded_since
+            if now - self.stranded_since > self.p.stranded_timeout:
+                self._safe_stop(now, out, f'stranded: {res["reason"]} for {self.p.stranded_timeout:.0f} s')
+                return
+            self.reason = f'waiting for a route back to the entrance ({now - self.stranded_since:.0f} s)'
+            out['route'] = []
+            return
+        self.stranded_since = None
         if res['state'] in (COMPLETE, INCOMPLETE):
             if self.manipulation_enabled and self.debris and self.t_eval < now and self._prioritize(now, xy, cov, R, status):
                 self._go(now, PRIORITIZE_TASKS, 'feasible debris left after exploration')
@@ -323,17 +338,23 @@ class MissionManager:
         if math.hypot(self.station_xy[0] - xy[0], self.station_xy[1] - xy[1]) < self.p.arrive_tol:
             self._go(now, DISPOSE, 'at the disposal station')
             return self._s_dispose(now, xy, cov, R, health, status, out, first=True)
-        plans = self.model.plan(self.g.locate(*xy), status, R, self.model.initial_covariance(cov), self.home)
+        # carrying: corridors narrower than robot/object + clearance count as blocked on the way back
+        cstatus = carry_status(status, self.prio.carry_width(self.target['debris']))
+        plans = self.model.plan(self.g.locate(*xy), cstatus, R, self.model.initial_covariance(cov), self.home)
         if not plans:
-            self.nav_failures += 1
-            if self.nav_failures >= self.p.max_nav_failures:
-                self._safe_stop(now, out, 'carrying debris but no route back to the disposal station')
+            # hold the object and wait: blockage evidence can clear (same rule as an explorer with no route home)
+            self.stranded_since = now if self.stranded_since is None else self.stranded_since
+            if now - self.stranded_since > self.p.stranded_timeout:
+                self._safe_stop(now, out, f'carrying {oid} but no route wide enough back to the disposal station '
+                                          f'for {self.p.stranded_timeout:.0f} s')
                 return
             out['route'] = []
-            self.reason = f'no route to the station ({self.nav_failures}/{self.p.max_nav_failures})'
+            self.reason = f'no route to the station, waiting ({now - self.stranded_since:.0f} s)'
             return
+        self.stranded_since = None
         self.nav_failures = 0
         out['route'] = self._waypoints(xy, plans[0]['legs'], self.station_xy, status)
+        self.carry_route = plans[0]['nodes']
 
     def _s_dispose(self, now, xy, cov, R, health, status, out, first=False):
         out['route'] = []
@@ -387,7 +408,10 @@ class MissionManager:
     def _s_resume_exploration(self, now, xy, cov, R, health, status, out):
         self._go(now, EXPLORE, 'resume the unfinished inspection')
         self.t_eval = -1e9
-        return self._s_explore(now, xy, cov, R, health, status, out)
+        self._s_explore(now, xy, cov, R, health, status, out)
+        res = self.explore_result or {}
+        self.resumptions.append(dict(t=round(now, 2), next=res.get('target'), explore_state=res.get('state'),
+                                     remaining_m=self.explorer.tracker.summary()['remaining_m']))
 
     def _s_localization_recovery(self, now, xy, cov, R, health, status, out):
         out['route'] = None          # keep the route: the follower's own health response stops, then creeps
@@ -426,4 +450,7 @@ class MissionManager:
                         pickup_requests=self.pickup_requests,
                         localization_recoveries=self.recoveries),
             state_time={k: round(v, 1) for k, v in self.state_time.items()},
+            holding=(self.manip.object_id if self.manip is not None and self.manip.state == 'HOLDING' else None),
+            resumptions=self.resumptions,
+            station=dict(xy=[round(float(v), 3) for v in self.station_xy], node=self.home),
             events=self.events, input_errors=self.input_errors[-20:])

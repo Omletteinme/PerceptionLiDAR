@@ -132,7 +132,7 @@ Run: `ros2 launch sewer_bringup mission.launch.py` after `robot_sim.launch.py` a
 | Topic | Type | Source |
 |---|---|---|
 | `/route` | `nav_msgs/Path` (map frame) | `exploration_node` (replaces `route_planner_node` in exploration missions; still one motion commander: the follower) |
-| `/exploration/status` | `std_msgs/String` (JSON: state INIT/EXPLORING/RETURNING/COMPLETE/INCOMPLETE, reason, frontiers, active_segment, target, candidates, localization) | `exploration_node` |
+| `/exploration/status` | `std_msgs/String` (JSON: state INIT/EXPLORING/RETURNING/COMPLETE/INCOMPLETE/NO_ROUTE_HOME, reason, frontiers, active_segment, target, candidates, localization) | `exploration_node` |
 | `/coverage/status` | `std_msgs/String` (JSON: coverage, confidence, explored/accessible/blocked/unreachable/skipped/total metres, segments, per-edge states) | `exploration_node` |
 | `/coverage/markers` | `visualization_msgs/MarkerArray` | `exploration_node`: corridor bins coloured explored/unexplored/blocked/skipped |
 

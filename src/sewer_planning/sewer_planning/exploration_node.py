@@ -30,7 +30,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from sewer_localization.map_utils import OccupancyMap
 from .coverage_tracker import BLOCKED, EXPLORED, SKIPPED, UNEXPLORED, CoverageParams, CoverageTracker
-from .exploration import COMPLETE, INCOMPLETE, INIT, Explorer, ExploreParams
+from .exploration import COMPLETE, INCOMPLETE, INIT, NO_ROUTE_HOME, Explorer, ExploreParams
 from .graph import Graph
 from .route_cost import CostParams, RouteModel
 from .route_planner_node import RoutePlannerNode
@@ -102,10 +102,11 @@ class ExplorationNode(Node):
         info.update({k: v for k, v in res.items() if k != 'waypoints'},
                     active_segment=Graph.key(loc[1]) if loc[0] == 'edge' else loc[1],
                     coverage_marking=trusted)
-        if res['waypoints']:
+        if res['waypoints'] or res['state'] == NO_ROUTE_HOME:     # NO_ROUTE_HOME: empty path = follower stops
             path = Path()
             path.header.stamp, path.header.frame_id = stamp, 'map'
-            RoutePlannerNode.fill_path(path, [np.asarray(p, float) for p in res['waypoints']])
+            if res['waypoints']:
+                RoutePlannerNode.fill_path(path, [np.asarray(p, float) for p in res['waypoints']])
             self.path_pub.publish(path)
         if res['state'] in (COMPLETE, INCOMPLETE):
             self.get_logger().info(f"exploration {res['state']}: {res['reason'] or 'all accessible corridors covered'}")

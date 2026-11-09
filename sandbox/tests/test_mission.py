@@ -19,7 +19,7 @@ from sewer_planning.mission_manager import (DISPOSAL_FAILED, EXPLORE, INITIALIZE
                                             MISSION_COMPLETE, NAVIGATE_TO_DEBRIS, PICKUP, PICKUP_FAILED,
                                             RETURN_TO_DISPOSAL, SAFE_STOP, MissionManager, MissionParams)
 from sewer_planning.route_cost import RouteModel
-from sewer_planning.task_prioritizer import TaskPrioritizer
+from sewer_planning.task_prioritizer import PriorityParams, TaskPrioritizer, carry_status
 
 GRAPH = Graph.load(os.path.join(sim2d.GAZEBO_PKG, 'config', 'network_graph_v2.yaml'))
 PRIOR = OccupancyMap.load(os.path.join(sim2d.GAZEBO_PKG, 'maps', 'sewer_map_v2'))
@@ -127,7 +127,7 @@ class Script:
         self.mm = MissionManager(GRAPH, model, params=MissionParams(**params))
         self.t, self.xy, self.health = 0.0, np.array(A, float), 'RELIABLE'
         self.debris, self.manip, self.disposal = [], ManipulationStatus('IDLE', 0.0), None
-        self.tasks = []
+        self.tasks, self.status = [], {}
 
     def tick(self, n=1, dt=0.5, move=True, pose=True):
         for _ in range(n):
@@ -139,7 +139,7 @@ class Script:
             for d in self.debris:
                 d.stamp = self.t
             out = self.mm.tick(self.t, tuple(self.xy), self.t if pose else self.t - 10, np.eye(2) * 1e-3, 0.95,
-                               self.health, {}, list(self.debris), [], self.manip, self.disposal)
+                               self.health, self.status, list(self.debris), [], self.manip, self.disposal)
             if out['task'] is not None:
                 self.tasks.append(out['task'])
             if move and out['route']:
@@ -252,3 +252,75 @@ def test_closed_loop_mission_still_covers_the_network(mission):
     assert sorted(d['type'] for d in rep['defects']) == ['crack', 'damaged_joint', 'deformation', 'hole']
     end = mission['true'][-1, :2]
     assert np.hypot(*(end - np.array(A))) < 0.5 and mission['min_clearance'] > 0.15
+
+
+# ------------------------------------------------------------------ Phase 5: carrying back to the station
+NARROW_J1J2 = {'J1-J2': dict(gap=0.55, blocked=False, s_min=2.8, s_max=3.5, offset=-0.2, observed=0.5, cells=20)}
+
+
+def test_carry_status_blocks_only_corridors_too_narrow_to_carry_through():
+    cs = carry_status(dict(NARROW_J1J2, **{'J1-J4': blocked(3.6, 4.4)}), 0.60)
+    assert cs['J1-J2']['blocked'] and cs['J1-J2']['carry_blocked']
+    assert cs['J1-J4']['blocked'] and 'carry_blocked' not in cs['J1-J4']
+    assert not carry_status(NARROW_J1J2, 0.40)['J1-J2']['blocked']
+
+
+def test_return_with_debris_avoids_a_gap_it_could_drive_through_empty(model):
+    """Wide carry (0.30 m robot + 2 x 0.15 m clearance = 0.60 m): J1-J2 has a 0.55 m gap, fine empty, too narrow loaded.
+    The robot may reach S2 through J2, but must carry it back the long way round (J3-J4-J1)."""
+    s = Script(model)
+    s.mm.prio = TaskPrioritizer(model, params=PriorityParams(carry_clearance=0.15))
+    s.status = dict(NARROW_J1J2)
+    s.debris = [deb('S2', 12.3, 8.0, (0.12, 0.12, 0.10))]
+    s.tick()
+    assert s.mm.state == NAVIGATE_TO_DEBRIS and s.mm.target['id'] == 'S2'   # reachable and carryable (via J4)
+    s.tick(4)
+    assert s.mm.state == PICKUP
+    s.manip = ManipulationStatus('HOLDING', s.t, 'S2', verified=True, task_id=s.tasks[-1].task_id)
+    s.debris = []
+    s.tick(1, move=False)
+    assert s.mm.state == RETURN_TO_DISPOSAL
+    assert 'J4' in s.mm.carry_route and 'J2' not in s.mm.carry_route
+
+
+def test_report_records_resumption_after_disposal(model):
+    s = Script(model)
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08))]
+    s.tick(5)
+    s.manip = ManipulationStatus('HOLDING', s.t, 'S1', verified=True, task_id=s.tasks[-1].task_id)
+    s.debris = []
+    s.tick(6)
+    tid = s.tasks[-1].task_id
+    s.manip = ManipulationStatus('RELEASED', s.t, 'S1', task_id=tid)
+    s.disposal = DisposalStatus(s.t, 'S1', station_reached=True, released=True, verified=True, task_id=tid)
+    s.tick(2)
+    rep = s.mm.report(s.t)
+    assert len(rep['resumptions']) == 1 and rep['resumptions'][0]['explore_state'] == 'EXPLORING'
+    assert rep['resumptions'][0]['next'] is not None and rep['holding'] is None
+
+
+@pytest.mark.skipif(os.environ.get('SEWER_SLOW_TESTS') != '1', reason='about 3 min; set SEWER_SLOW_TESTS=1')
+def test_disturbed_mission_never_claims_a_false_removal():
+    """Scan disturbance x2 + wheel slip x2: the mission may finish or stop safely, but every removal it reports must
+    be real (simulator agrees) and the health response must have been exercised."""
+    out = mission_sim.run(seed=0, severity=2.0, slip=2.0, pf_n=250)
+    rep = out['report']
+    disposed = {d.id for d in out['scenario'].debris if d.disposed}
+    print(f"\n[disturbed v2 seed 0] {rep['state']} ({rep['reason']}), removed {[r['id'] for r in rep['debris']['removed']]},"
+          f" health {out['health_time']}, RMSE {out['pos_rmse']:.3f}")
+    assert rep['state'] in (MISSION_COMPLETE, SAFE_STOP)
+    assert {r['id'] for r in rep['debris']['removed']} <= disposed
+    assert out['health_time'].get('DEGRADED', 0) + out['health_time'].get('CRITICAL', 0) > 0
+
+
+def test_stranded_robot_waits_then_stops_safely_never_completes(model):
+    s = Script(model, stranded_timeout=5.0)
+    for e in GRAPH.edges:
+        s.mm.explorer.tracker.explored[e][:] = True
+    s.xy = np.array(GRAPH.nodes['M'], float)
+    s.status = {'J1-J2': blocked(2.8, 3.6), 'J1-J4': blocked(3.6, 4.4)}
+    out = s.tick(2)
+    assert out['state'] == EXPLORE and out['route'] == [] and 'waiting' in out['reason']
+    out = s.tick(12)
+    assert out['state'] == SAFE_STOP and 'stranded' in out['reason']
+    assert MISSION_COMPLETE not in [e.get('to') for e in s.mm.events]

@@ -28,6 +28,7 @@ from .coverage_tracker import CoverageTracker
 from .graph import Graph
 
 INIT, EXPLORING, RETURNING, COMPLETE, INCOMPLETE = 'INIT', 'EXPLORING', 'RETURNING', 'COMPLETE', 'INCOMPLETE'
+NO_ROUTE_HOME = 'NO_ROUTE_HOME'   # nothing left to explore but no route back to the entrance: NOT a success
 
 
 @dataclass
@@ -50,6 +51,42 @@ class Explorer:
         self.current = None           # key (edge key, target s) of the current target
         self.dwell = {}               # target key -> explorer steps spent at it after arriving
         self.status = {}
+        self.visits = {}              # edge -> [[s_lo, s_hi], ...] stretches the robot actually drove (trusted pose)
+        self._visit = None            # (edge, index) of the stretch being extended
+
+    # ------------------------------------------------------------------ what the robot has driven through
+    def observe(self, xy, trusted=True):
+        """Record where the robot is driving (estimated pose, trusted only). Called every tick."""
+        loc = self.g.locate(float(xy[0]), float(xy[1]))
+        if loc[0] != 'edge':                 # leaving the corridor ends the stretch
+            self._visit = None
+            return
+        if not trusted:                      # a doubtful pose adds nothing but does not end the stretch either: the
+            return                           # robot often crosses debris while the scans there are disturbed
+        e, s = loc[1], loc[2]
+        if self._visit is not None and self._visit[0] == e:
+            iv = self.visits[e][self._visit[1]]
+            iv[0], iv[1] = min(iv[0], s), max(iv[1], s)
+        else:
+            self.visits.setdefault(e, []).append([s, s])
+            self._visit = (e, len(self.visits[e]) - 1)
+
+    def effective_status(self, status):
+        """Detector status, except that a corridor the robot has DRIVEN THROUGH past the reported obstruction is not
+        blocked: it is passable (with the detector's narrow-gap handling), whatever the evidence grid says now. Under heavy
+        scan disturbance the detector can turn a passable partial obstruction into a full blockage after the robot has
+        passed it (found in the Phase 5 disturbed sandbox runs, B2 at 3x disturbance); without this the robot is
+        stranded behind a blockage it just drove through."""
+        out = {}
+        min_gap = self.model.p.min_gap
+        for k, st in (status or {}).items():
+            if st.get('blocked') and st.get('s_min') is not None:
+                e = next((e for e in self.g.edges if Graph.key(e) == k), None)
+                if e is not None and any(lo <= st['s_min'] - 0.05 and hi >= st['s_max'] + 0.05
+                                         for lo, hi in self.visits.get(e, ())):
+                    st = dict(st, blocked=False, gap=max(st.get('gap', 0.0), min_gap), traversed=True)
+            out[k] = st
+        return out
 
     # ------------------------------------------------------------------ candidate targets
     def _stub_targets(self, e, lo, hi, open_lo, open_hi):
@@ -138,14 +175,16 @@ class Explorer:
         blockage status from the detector; trusted: False while the localization health is CRITICAL.
         Returns dict(state, reason, target, waypoints, frontiers, candidates).
         """
+        self.observe(xy, trusted)
         if status is not None:
-            self.status = status
-        self.tracker.set_status(self.status)
+            self.status = self.effective_status(status)
+        x, y = float(xy[0]), float(xy[1])
+        loc = self.g.locate(x, y)
+        seeds = [n for n, _, _ in self.model.first_options(loc, self.status)]
+        self.tracker.set_status(self.status, seeds)
         cov = np.zeros((2, 2)) if cov2 is None else np.asarray(cov2, float)
         sigma = math.sqrt(max(float(np.linalg.eigvalsh(cov)[-1]), 0.0))
         self.tracker.update_pose(xy[0], xy[1], sigma, trusted)
-        x, y = float(xy[0]), float(xy[1])
-        loc = self.g.locate(x, y)
         P0 = self.model.initial_covariance(cov)
 
         cands = self.candidates(loc, R, P0)
@@ -163,7 +202,7 @@ class Explorer:
                     self.tracker.skip(c['edge'], c['s'] - r, c['s'] + r)
                     self.reason = f'skipped bins near {c["key"][0]}@{c["key"][1]} (reached, not covered)'
         if any(self.dwell.get(c['key'], 0) > self.p.patience for c in cands):
-            self.tracker.set_status(self.status)
+            self.tracker.set_status(self.status, seeds)
             cands = self.candidates(loc, R, P0)
 
         if cands:
@@ -194,7 +233,7 @@ class Explorer:
             return out
         plans = self.model.plan(loc, self.status, R, P0, self.home)
         if not plans:
-            self.state, self.reason = done, (why + '; ' if why else '') + 'no route back to the entrance'
+            self.state, self.reason = NO_ROUTE_HOME, (why + '; ' if why else '') + 'no route back to the entrance'
             out.update(state=self.state, reason=self.reason, waypoints=None, target=None)
             return out
         self.state, self.reason = RETURNING, why

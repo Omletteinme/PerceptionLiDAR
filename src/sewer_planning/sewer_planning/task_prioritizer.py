@@ -71,6 +71,10 @@ class TaskPrioritizer:
             return f'too tall ({sz[2] + sg[2]:.2f} m > {lim.max_height:.2f} m)'
         return None
 
+    def carry_width(self, d):
+        """Free gap the robot needs while carrying debris d: chassis or object (held across the front), plus clearance."""
+        return max(self.lim.robot_width, sorted(d.size[:2])[0]) + 2 * self.p.carry_clearance
+
     def _min_gap(self, legs, status):
         gaps = [status[k]['gap'] for k in {self.model.g.key(e) for e, _, _ in legs}
                 if k in status and not status[k].get('blocked') and status[k].get('s_min') is not None]
@@ -117,11 +121,14 @@ class TaskPrioritizer:
             if not back:
                 rejected.append(dict(id=d.id, reason='no_return', detail=f'no route from it back to {home}'))
                 continue
-            carry_w = max(lim.robot_width, sorted(d.size[:2])[0])
-            gap = min(self._min_gap(back[0]['legs'], status), self._min_gap(r['legs'], status))
-            if carry_w + 2 * p.carry_clearance > gap:
-                rejected.append(dict(id=d.id, reason='carry', detail=f'needs {carry_w + 2 * p.carry_clearance:.2f} m, '
-                                                                     f'narrowest gap {gap:.2f} m'))
+            need = self.carry_width(d)
+            back = self.model.plan(('edge', e, s_a, 0.0), carry_status(status, need), R,
+                                   self.model.initial_covariance(), home)
+            if not back:
+                gap = self._min_gap(self.model.plan(('edge', e, s_a, 0.0), status, R, self.model.initial_covariance(),
+                                                    home)[0]['legs'], status)
+                rejected.append(dict(id=d.id, reason='carry', detail=f'needs {need:.2f} m of free gap, every route '
+                                                                     f'back is narrower (best {gap:.2f} m)'))
                 continue
             w = sorted(d.size[:2])[0]
             grasp = d.grasp_score if d.grasp_score is not None else max(0.0, 1.0 - w / lim.max_width)
@@ -144,6 +151,20 @@ class TaskPrioritizer:
             c['terms'] = {k: round(v, 3) for k, v in t.items()}
         ranked.sort(key=lambda c: -c['score'])
         return dict(ranked=ranked, rejected=rejected)
+
+
+def carry_status(status, width):
+    """Edge status as seen by a robot that needs `width` metres of free gap (e.g. while carrying an object).
+
+    Corridors whose detected free gap is narrower are reported as blocked (keeping the obstruction's extent), so the
+    existing RouteModel routes around them exactly as it routes around full blockages.
+    """
+    out = {}
+    for k, st in (status or {}).items():
+        if not st.get('blocked') and st.get('s_min') is not None and st.get('gap', 1e9) < width:
+            st = dict(st, blocked=True, carry_blocked=True)
+        out[k] = st
+    return out
 
 
 def approach_xy(graph, item):

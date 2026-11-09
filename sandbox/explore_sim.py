@@ -22,13 +22,14 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(__file__))
 import sim2d  # noqa: E402  (puts src/* on sys.path)
-from sewer_localization.disturbances import OdometryErrorModel  # noqa: E402
+from sewer_localization.disturbances import OdometryErrorModel, make_schedule, make_slip_schedule  # noqa: E402
+from sewer_localization.health import CRITICAL, HealthMonitor  # noqa: E402
 from sewer_localization.map_utils import OccupancyMap  # noqa: E402
 from sewer_localization.particle_filter import PFParams, ReliabilityAwareFilter, fuse_heading  # noqa: E402
 from sewer_perception.blockage import EvidenceGrid  # noqa: E402
 from sewer_planning.exploration import COMPLETE, INCOMPLETE, Explorer  # noqa: E402
 from sewer_planning.graph import Graph  # noqa: E402
-from sewer_planning.pursuit import pursuit_target  # noqa: E402
+from sewer_planning.pursuit import health_speed_factor, pursuit_target  # noqa: E402
 from sewer_planning.route_cost import RouteModel  # noqa: E402
 
 DT, ANGLES = sim2d.DT, sim2d.ANGLES
@@ -72,7 +73,11 @@ class SimRobot:
     the robot decides with comes from `estimate()` and `edge_status()`.
     """
 
-    def __init__(self, prior, true, graph, seed=0, pf_params=None):
+    def __init__(self, prior, true, graph, seed=0, pf_params=None, severity=0.0, slip=0.0, repeat=100.0,
+                 health_response=True):
+        """severity: scan-disturbance schedule (sewer_localization.disturbances.make_schedule), repeated every `repeat`
+        seconds so it also hits the later parts of a long mission; slip: wheel-slip zones (make_slip_schedule, by
+        distance driven). 0 / 0 = the clean setup of the Phase 1/3 runs (identical random streams)."""
         self.prior, self.true, self.g = prior, true, graph
         self.rng = np.random.default_rng(seed)
         self.x, self.y = graph.nodes[graph.start]
@@ -81,9 +86,11 @@ class SimRobot:
         self.f = ReliabilityAwareFilter(prior, self.pfp, np.random.default_rng(seed + 1000),
                                         (self.x, self.y, self.th), ANGLES)
         self.grid = EvidenceGrid(prior)
-        self.odo = OdometryErrorModel(self.rng, ())   # per-run scale errors + gyro bias walk, no slip zones
+        self.odo = OdometryErrorModel(self.rng, make_slip_schedule(slip) if slip > 0 else ())
+        self.schedule, self.repeat, self.dist_state = (make_schedule(severity) if severity > 0 else []), repeat, {}
+        self.health, self.health_response, self.critical_since = HealthMonitor(), health_response, None
         self.travelled, self.t = 0.0, 0.0
-        self.log = dict(true=[], est=[], clearance=[])
+        self.log = dict(true=[], est=[], clearance=[], health=[])
 
     def estimate(self):
         return self.f.estimate()
@@ -103,9 +110,15 @@ class SimRobot:
             return 0.0, 0.0
         tgt = pursuit_target(path, xe, ye, 0.5)
         alpha = sim2d.wrap(math.atan2(tgt[1] - ye, tgt[0] - xe) - the)
+        k = 1.0
+        if self.health_response:                     # route_follower_node's health response (slow / wait / creep)
+            st = self.health.state
+            k = health_speed_factor(st, self.t - self.critical_since if st == CRITICAL and self.critical_since is not None
+                                    else 0.0)
         if abs(alpha) > 0.6:
-            return 0.0, max(-1.0, min(1.0, 1.5 * alpha))
-        return min(vmax * max(0.3, 1.0 - abs(alpha)), 0.5 * dist_goal + 0.1), max(-1.0, min(1.0, 2.0 * alpha))
+            return 0.0, k * max(-1.0, min(1.0, 1.5 * alpha))
+        return (k * min(vmax * max(0.3, 1.0 - abs(alpha)), 0.5 * dist_goal + 0.1),
+                k * max(-1.0, min(1.0, 2.0 * alpha)))
 
     def step(self, v_cmd, w_cmd):
         """Advance one LiDAR period: TRUE kinematics, odometry, scan, localization, blockage evidence."""
@@ -125,21 +138,30 @@ class SimRobot:
                               sim2d.RMAX, sim2d.RMIN)
         fin = np.isfinite(z)
         z[fin] += self.rng.normal(0, sim2d.LIDAR_SIGMA, fin.sum())
+        if self.schedule:
+            z, _, _ = sim2d.apply_disturbances(z, (self.t % self.repeat) + DT, self.schedule, self.rng, self.dist_state)
         z[z >= sim2d.RMAX] = np.inf
         self.f.predict(ds_m, fuse_heading(dthw_m, dthg_m, self.pfp.gyro_weight))
         self.f.update(z, ANGLES)
+        prev = self.health.state
+        self.health.update(DT, fit=self.f.fit_residual, R=self.f.R, gyro=abs(dthw_m - dthg_m) / DT)
+        if self.health.state == CRITICAL and prev != CRITICAL:
+            self.critical_since = self.t
         xe, ye, the, _ = self.f.estimate()
         self.grid.update((xe, ye, the), z, ANGLES, self.f.r)
         self.t += DT
         self.log['true'].append((x, y, th))
         self.log['est'].append((xe, ye, the))
         self.log['clearance'].append(float(self.true.dist(np.array([x]), np.array([y]))[0]))
+        self.log['health'].append(self.health.state)
 
     def metrics(self):
         true_xy, est_xy = np.array(self.log['true'])[:, :2], np.array(self.log['est'])[:, :2]
         return dict(true=np.array(self.log['true']), est=np.array(self.log['est']), sim_time=len(self.log['true']) * DT,
                     min_clearance=min(self.log['clearance']) if self.log['clearance'] else float('inf'),
-                    pos_rmse=float(np.sqrt(np.mean(np.sum((true_xy - est_xy) ** 2, axis=1)))))
+                    pos_rmse=float(np.sqrt(np.mean(np.sum((true_xy - est_xy) ** 2, axis=1)))),
+                    max_pos_err=float(np.max(np.hypot(*(true_xy - est_xy).T))),
+                    health_time={k: round(self.log['health'].count(k) * DT, 1) for k in set(self.log['health'])})
 
 
 def run(seed=0, network='sewer_network_v2', world='blocked', t_max=900.0, vmax=0.35, verbose=False):

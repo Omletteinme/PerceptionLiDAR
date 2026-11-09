@@ -47,13 +47,19 @@ class CoverageTracker:
             self.explored[e] = np.zeros(n, bool)
             self.sigma_at[e] = np.full(n, np.inf)
             self.skipped[e] = np.zeros(n, bool)
-        self.status = {}
+        self.status, self.seeds = {}, ()
         self._access = None
 
     # ------------------------------------------------------------------ inputs
-    def set_status(self, status):
-        """Per-edge blockage status from the detector: {'A-B': {blocked, s_min, s_max, ...}}."""
+    def set_status(self, status, seeds=()):
+        """Per-edge blockage status from the detector: {'A-B': {blocked, s_min, s_max, ...}}.
+
+        seeds: extra nodes the robot can reach from where it is now. Accessibility is the union of what is reachable from
+        the entrance and from the robot, so a robot cut off behind a (possibly phantom) blockage still counts the
+        corridors around it instead of declaring them unreachable.
+        """
         self.status = dict(status or {})
+        self.seeds = tuple(seeds)
         self._access = None
 
     def update_pose(self, x, y, sigma=0.0, trusted=True):
@@ -89,7 +95,8 @@ class CoverageTracker:
         return bool(st and st.get('blocked'))
 
     def reachable_nodes(self):
-        seen, todo = {self.start}, deque([self.start])
+        seen = {self.start, *self.seeds}
+        todo = deque(seen)
         while todo:
             u = todo.popleft()
             for v in self.g.neighbours(u):

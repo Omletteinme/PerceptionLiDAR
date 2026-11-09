@@ -33,8 +33,9 @@ def _setup(context):
     actions = [
         Node(package='sewer_perception', executable='blockage_detector_node', output='screen',
              parameters=[{'map_path': map_path, 'graph_path': graph_path, 'use_reliability': True, **pose, **sim}]),
-        Node(package='sewer_planning', executable='mission_manager_node', output='screen',
-             parameters=[{'map_path': map_path, 'graph_path': graph_path, 'health_topic': health,
+        Node(package='sewer_planning', executable='mission_manager_node', name='mission_manager', output='screen',
+             parameters=[os.path.join(get_package_share_directory('sewer_planning'), 'config', 'mission.yaml'),
+                         {'map_path': map_path, 'graph_path': graph_path, 'health_topic': health,
                           'require_manipulator': cfg['require_manipulator'].lower() == 'true',
                           'init_timeout': float(cfg['init_timeout']), **pose, **sim}]),
     ]
