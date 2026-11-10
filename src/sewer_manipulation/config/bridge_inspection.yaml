@@ -1,0 +1,13 @@
+# Extra ros_gz_bridge topics for the inspection robot (Account 2). The base robot's topics stay in
+# sewer_gazebo/config/bridge.yaml (unchanged, bridged as well). The bridge itself is from ros_gz.
+- {ros_topic_name: robot_cam/image, gz_topic_name: robot_cam/image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS}
+- {ros_topic_name: robot_depth, gz_topic_name: robot_depth, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS}
+- {ros_topic_name: arm/turret/cmd, gz_topic_name: arm/turret/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+- {ros_topic_name: arm/shoulder/cmd, gz_topic_name: arm/shoulder/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+- {ros_topic_name: arm/elbow/cmd, gz_topic_name: arm/elbow/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+- {ros_topic_name: arm/wrist/cmd, gz_topic_name: arm/wrist/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+- {ros_topic_name: arm/wrist_yaw/cmd, gz_topic_name: arm/wrist_yaw/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+- {ros_topic_name: arm/left_finger/cmd, gz_topic_name: arm/left_finger/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+- {ros_topic_name: arm/right_finger/cmd, gz_topic_name: arm/right_finger/cmd, ros_type_name: std_msgs/msg/Float64, gz_type_name: gz.msgs.Double, direction: ROS_TO_GZ}
+# SIMULATED STATE (optional evidence for lift/disposal verification only; never a perception input)
+- {ros_topic_name: sim/dynamic_poses, gz_topic_name: /world/sewer_network/dynamic_pose/info, ros_type_name: tf2_msgs/msg/TFMessage, gz_type_name: gz.msgs.Pose_V, direction: GZ_TO_ROS}

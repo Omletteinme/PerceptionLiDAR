@@ -14,11 +14,13 @@ setup(
     zip_safe=True,
     maintainer='jeevi',
     maintainer_email='jeeviteshmishra26@gmail.com',
-    description='LiDAR-based blockage detection',
+    description='LiDAR blockage detection; object-level debris and structural defect inspection',
     license='MIT',
     entry_points={
         'console_scripts': [
             'blockage_detector_node = sewer_perception.blockage_detector_node:main',
+            'inspection_node = sewer_perception.inspection_node:main',
+            'dataset_recorder_node = sewer_perception.dataset_recorder_node:main',
         ],
     },
 )

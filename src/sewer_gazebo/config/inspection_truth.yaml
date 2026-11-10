@@ -1,0 +1,274 @@
+comment: GROUND TRUTH, EVALUATION ONLY. Never read this from perception, manipulation
+  or planning.
+base_network: sewer_network_v2
+prior_map: maps/sewer_map_v2
+small_debris:
+- id: S1
+  kind: box
+  x: 2.5
+  y: 0.28
+  yaw: 0.3
+  size:
+  - 0.06
+  - 0.06
+  - 0.06
+  mass: 0.08
+  graspable_designed: true
+  note: small brick fragment
+- id: S2
+  kind: cyl
+  x: 6.0
+  y: -0.3
+  yaw: 0.0
+  size:
+  - 0.07
+  - 0.07
+  - 0.09
+  mass: 0.1
+  graspable_designed: true
+  note: can / pipe offcut
+- id: S3
+  kind: box
+  x: 7.72
+  y: 1.2
+  yaw: 0.0
+  size:
+  - 0.16
+  - 0.22
+  - 0.07
+  mass: 1.2
+  graspable_designed: false
+  note: 'concrete slab: too wide for the gripper'
+- id: S4
+  kind: box
+  x: 7.75
+  y: 5.0
+  yaw: 1.5708
+  size:
+  - 0.1
+  - 0.05
+  - 0.05
+  mass: 0.1
+  graspable_designed: true
+  note: wood offcut
+- id: S5
+  kind: box
+  x: 10.0
+  y: 6.27
+  yaw: 0.0
+  size:
+  - 0.08
+  - 0.08
+  - 0.11
+  mass: 0.25
+  graspable_designed: true
+  note: rock
+- id: S6
+  kind: box
+  x: 12.25
+  y: 8.0
+  yaw: 1.5708
+  size:
+  - 0.3
+  - 0.08
+  - 0.06
+  mass: 0.9
+  graspable_designed: false
+  note: 'beam: estimated mass over the payload'
+large_debris:
+- id: B1
+  pieces:
+  - - box
+    - 12.0
+    - -0.25
+    - 0.5
+    - 0.6
+    - 0.5
+  - - box
+    - 12.1
+    - 0.25
+    - 0.6
+    - 0.6
+    - 0.4
+  - - cyl
+    - 11.8
+    - 0.0
+    - 0.25
+    - 0.5
+  graspable_designed: false
+- id: B2
+  pieces:
+  - - box
+    - 7.7
+    - 3.0
+    - 0.4
+    - 0.6
+    - 0.35
+  - - cyl
+    - 7.7
+    - 3.55
+    - 0.12
+    - 0.3
+  graspable_designed: false
+- id: B3
+  pieces:
+  - - box
+    - 14.0
+    - 5.75
+    - 0.5
+    - 0.6
+    - 0.5
+  - - box
+    - 14.1
+    - 6.25
+    - 0.6
+    - 0.6
+    - 0.4
+  - - cyl
+    - 13.8
+    - 6.0
+    - 0.25
+    - 0.5
+  graspable_designed: false
+defects:
+- id: H1
+  type: hole
+  edge:
+  - A
+  - J1
+  wall: S
+  x: 3.475
+  y: -0.5
+  z: 0.13
+  normal:
+  - 0.0
+  - 1.0
+  width: 0.15
+  depth: 0.1
+- id: H2
+  type: hole
+  edge:
+  - M
+  - E
+  wall: W
+  x: 11.5
+  y: 9.0
+  z: 0.13
+  normal:
+  - 1.0
+  - 0.0
+  width: 0.2
+  depth: 0.1
+- id: J1
+  type: damaged_joint
+  edge:
+  - J2
+  - M
+  wall: N
+  x: 10.025
+  y: 6.5
+  z: 0.13
+  normal:
+  - 0.0
+  - -1.0
+  width: 0.05
+  depth: 0.1
+- id: J2
+  type: damaged_joint
+  edge:
+  - J3
+  - J4
+  wall: W
+  x: 15.5
+  y: 2.025
+  z: 0.13
+  normal:
+  - 1.0
+  - 0.0
+  width: 0.05
+  depth: 0.1
+- id: DF1
+  type: deformation
+  edge:
+  - J1
+  - J2
+  wall: E
+  x: 8.5
+  y: 4.2
+  z: 0.13
+  normal:
+  - -1.0
+  - 0.0
+  width: 0.5
+  depth: 0.05
+- id: DF2
+  type: deformation
+  edge:
+  - E
+  - F
+  wall: S
+  x: 14.0
+  y: 9.5
+  z: 0.13
+  normal:
+  - 0.0
+  - 1.0
+  width: 0.6
+  depth: 0.07
+- id: C1
+  type: crack
+  edge:
+  - A
+  - J1
+  wall: N
+  x: 6.2
+  y: 0.5
+  z: 0.52
+  normal:
+  - 0.0
+  - -1.0
+  width: 0.4
+  depth: 0.0
+  length: 0.4
+- id: C2
+  type: crack
+  edge:
+  - J1
+  - J2
+  wall: W
+  x: 7.5
+  y: 1.0
+  z: 0.5
+  normal:
+  - 1.0
+  - 0.0
+  width: 0.25
+  depth: 0.0
+  length: 0.25
+- id: C3
+  type: crack
+  edge:
+  - J2
+  - M
+  wall: S
+  x: 11.0
+  y: 5.5
+  z: 0.55
+  normal:
+  - 0.0
+  - 1.0
+  width: 0.6
+  depth: 0.0
+  length: 0.6
+disposal:
+  x_min: -0.44
+  x_max: -0.24
+  y_min: -0.15
+  y_max: 0.15
+  rim_h: 0.04
+  rim_t: 0.01
+  approach:
+    x: 0.04
+    y: 0.0
+    yaw: 3.141592653589793
+  drop_height: 0.05

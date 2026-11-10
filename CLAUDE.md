@@ -150,3 +150,21 @@ Run: `ros2 launch sewer_bringup exploration.launch.py network:=sewer_network_v2`
 | `/manipulation/status`, `/disposal/status` | `std_msgs/String` (JSON; `verified` only from simulated physical evidence) | Account 2 -> mission |
 
 Run: `ros2 launch sewer_bringup mission_manager.launch.py` after `robot_sim.launch.py` and `localization.launch.py filter:=both`. Sandbox: `python3 sandbox/mission_sim.py --seed 0` (perception/arm are SANDBOX STAND-INS in `sandbox/mission_standins.py`).
+
+## Topic interface additions (Account 2: perception, inspection, manipulation; schemas in docs/mission_interfaces.md, review in docs/account2_interface_review.md)
+
+| Topic | Type | Source |
+|---|---|---|
+| `/robot_depth` | `sensor_msgs/Image` (32FC1, planar depth [m], 320x180, 5 Hz) | Gazebo depth camera on `camera_link` (inspection robot only) via `config/bridge_inspection.yaml` |
+| `/robot_cam/image` | `sensor_msgs/Image` (rgb8) | Gazebo `robot_cam` via `config/bridge_inspection.yaml` |
+| `/perception/debris`, `/perception/defects` | `std_msgs/String` (JSON, map frame; documented fields + Account 2 extras) | `inspection_node` (sewer_perception) |
+| `/perception/markers` | `visualization_msgs/MarkerArray` | `inspection_node` |
+| `/manipulation/status`, `/disposal/status` | `std_msgs/String` (JSON; `verified` only from contact / finger-gap / lift evidence) | `manipulation_node` (sewer_manipulation) |
+| `/mission/task` (input) | `std_msgs/String` (PICKUP / DISPOSE / STOP; subscribed TRANSIENT_LOCAL) | Mission Manager -> `manipulation_node` |
+| `/odom` (input) | `nav_msgs/Odometry` | wheel odometry -> `manipulation_node` (carries the last camera sighting of an object beside the robot; param `odom_topic`) |
+| `arm/{turret,shoulder,elbow,wrist,wrist_yaw,left_finger,right_finger}/cmd` | `std_msgs/Float64` -> Gazebo JointPositionController | `manipulation_node` |
+| `/contacts/left_finger`, `/contacts/right_finger` | `ros_gz_interfaces/Contacts` | Gazebo finger contact sensors |
+| `/sim/dynamic_poses` | `tf2_msgs/TFMessage` | Gazebo dynamic model poses: SIMULATED STATE, optional arm-verification evidence only, never perception input |
+| `/scan_self_filtered` | `sensor_msgs/LaserScan` | `scan_self_filter_node`: /scan without the beams that hit the lowered arm (not wired to the localizers: lead decision) |
+
+Run: `ros2 launch sewer_manipulation inspection_sim.launch.py` (inspection world + robot with arm and depth camera; replaces robot_sim.launch.py), `localization.launch.py filter:=both network:=sewer_network_v2`, `ros2 launch sewer_manipulation inspection.launch.py`, then `mission_manager.launch.py`. Checks: `bash tests/account2_live_check.sh topics|pick|mission|dataset`. Sandbox: `python3 sandbox/mission_sim_account2.py --seed 0` (Account 1's Mission Manager with Account 2's real perception and arm logic).

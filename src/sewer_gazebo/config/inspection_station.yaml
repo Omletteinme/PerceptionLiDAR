@@ -1,0 +1,17 @@
+comment: 'Disposal station: a-priori configuration (Account 1 navigates to approach;
+  Account 2 drops/verifies).'
+tray:
+  x_min: -0.44
+  x_max: -0.24
+  y_min: -0.15
+  y_max: 0.15
+  rim_h: 0.04
+approach:
+  x: 0.04
+  y: 0.0
+  yaw: 3.1416
+ignore_zone:
+  x_min: -0.51
+  x_max: -0.17
+  y_min: -0.22
+  y_max: 0.22

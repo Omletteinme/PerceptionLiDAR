@@ -2,7 +2,7 @@
 <package format="3">
   <name>sewer_perception</name>
   <version>0.1.0</version>
-  <description>LiDAR-based blockage detection: pure NumPy core plus a ROS 2 node.</description>
+  <description>LiDAR blockage detection, object-level debris and structural-defect inspection: pure NumPy core plus ROS 2 nodes.</description>
   <maintainer email="jeeviteshmishra26@gmail.com">jeevi</maintainer>
   <license>MIT</license>
   <exec_depend>sewer_localization</exec_depend>
@@ -14,5 +14,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
   <export><build_type>ament_python</build_type></export>
 </package>
