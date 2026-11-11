@@ -1,15 +1,14 @@
 # Mission Manager parameters (Account 1). Loaded by sewer_bringup/launch/mission_manager.launch.py.
-# Values marked PLACEHOLDER are proposals until Account 2 fixes the arm design and the disposal-station model
-# (docs/mission_interfaces.md). Launch arguments override require_manipulator and init_timeout.
+# Gripper limits and the station follow Account 2's arm and tray (docs/account2_interface_review.md). Launch arguments override require_manipulator and init_timeout.
 mission_manager:
   ros__parameters:
-    # disposal station: by default the entrance node of the graph (A at 0, 0). Set use_station_xy and station_xy once
-    # Account 2 / the lead place a station model outside the entrance; it must lie on or next to a corridor.
+    # disposal station: the entrance node A (0, 0). Account 2's tray is against the end wall just behind it
+    # (sewer_gazebo/config/inspection_station.yaml) and is in reach from anywhere within the 0.25 m arrival tolerance.
     use_station_xy: false
     station_xy: [0.0, 0.0]
-    # gripper limits, PLACEHOLDER
-    gripper_max_width: 0.15
-    gripper_max_length: 0.30
+    # gripper limits: Account 2's arm (docs/account2_interface_review.md); the check adds 1 sigma of size itself
+    gripper_max_width: 0.11
+    gripper_max_length: 0.32
     gripper_max_height: 0.15
     # debris priority weights (task_prioritizer.py); documented baseline heuristic
     w_size: 0.4

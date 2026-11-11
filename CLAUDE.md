@@ -168,3 +168,7 @@ Run: `ros2 launch sewer_bringup mission_manager.launch.py` after `robot_sim.laun
 | `/scan_self_filtered` | `sensor_msgs/LaserScan` | `scan_self_filter_node`: /scan without the beams that hit the lowered arm (not wired to the localizers: lead decision) |
 
 Run: `ros2 launch sewer_manipulation inspection_sim.launch.py` (inspection world + robot with arm and depth camera; replaces robot_sim.launch.py), `localization.launch.py filter:=both network:=sewer_network_v2`, `ros2 launch sewer_manipulation inspection.launch.py`, then `mission_manager.launch.py`. Checks: `bash tests/account2_live_check.sh topics|pick|mission|dataset`. Sandbox: `python3 sandbox/mission_sim_account2.py --seed 0` (Account 1's Mission Manager with Account 2's real perception and arm logic).
+
+## Integrated system (Account 1, Phase 6)
+
+One launch for everything: `ros2 launch sewer_bringup full_mission.launch.py [headless:=false] [disturbed:=true severity:=2.0 odom_disturbed:=true odom_severity:=2.0]` (inspection_sim -> localization at 35 s -> Account 2 nodes at 47 s -> mission_manager at 57 s; existing launch files unchanged). When the mission ends, `mission_manager_node` writes `report.json`, `report.md` and `map.png` to `~/sewer_ws/logs/mission_reports/<time>/` (`report_dir` parameter). Gripper limits in `sewer_planning/config/mission.yaml` are Account 2's real arm (0.11 / 0.32 / 0.15 m). Known debris lower than the LiDAR plane is routed around (`point_route.avoid_debris`); new detections are ingested only while localization health is RELIABLE (`detections_max_health`).

@@ -74,3 +74,69 @@ def approach_points(graph, x, y, half_len, standoff, max_offset=0.7):
     if s_hi <= L + 0.05:
         out.append((e, min(s_hi, L), s_obj, math.atan2(-a[1], -a[0])))
     return out
+
+
+def avoid_debris(graph, pts, obstacles, robot_half=0.15, margin=0.05, lane_half=0.30, ramp=0.35):
+    """Bend a sparse route polyline around small debris the LiDAR cannot see.
+
+    CUSTOM (ours). Debris lower than the LiDAR scan plane never reaches the blockage detector (edge_gaps), so the
+    route would run straight over it (Account 2's interface review, point 1). For every route segment that passes an
+    obstacle closer than half + robot_half + margin, the robot is shifted sideways onto the side that needs the smaller
+    shift, with `ramp` metres to move over before and after. A shifted point must stay within `lane_half` of the
+    corridor centre line (corridor half-width 0.5 minus robot half-width and a wall margin), otherwise the obstacle is
+    reported as unavoidable and the segment is left unchanged.
+
+    pts: [array(2)] sparse route; obstacles: [(id, x, y, half_extent)].
+    Returns (new_pts, detours [ids], unavoidable [ids]).
+    """
+    if not obstacles or len(pts) < 2:
+        return pts, [], []
+    out, detours, blocked = [np.asarray(pts[0], float)], [], []
+
+    def in_lane(p):
+        loc = graph.locate(float(p[0]), float(p[1]))
+        return loc[0] == 'node' or abs(loc[3]) <= lane_half + 1e-6
+
+    for a, b in zip(pts[:-1], pts[1:]):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        L = float(np.linalg.norm(b - a))
+        if L < 1e-6:
+            out.append(b)
+            continue
+        u = (b - a) / L
+        n = np.array([-u[1], u[0]])
+        hits = []
+        for oid, ox, oy, half in obstacles:
+            v = np.array([ox, oy]) - a
+            t, dl = float(v @ u), float(v @ n)
+            need = half + robot_half + margin
+            if t < -need or t > L + need or abs(dl) >= need:
+                continue
+            s0, s1 = max(t - need - ramp, 0.0), min(t + need + ramp, L)
+            for off in sorted((dl - need, dl + need), key=abs):
+                if all(in_lane(a + u * s + n * off) for s in (max(t - need, 0.0), t, min(t + need, L))):
+                    hits.append((s0, s1, off, oid))
+                    break
+            else:
+                blocked.append(oid)
+        hits.sort()
+        merged = []
+        for h in hits:                        # overlapping detours: keep one shift that clears both, if they agree
+            if merged and h[0] <= merged[-1][1]:
+                p = merged[-1]
+                if np.sign(p[2]) == np.sign(h[2]):
+                    merged[-1] = (p[0], max(p[1], h[1]), max(p[2], h[2], key=abs), p[3] + ',' + h[3])
+                else:
+                    blocked.append(h[3])
+                continue
+            merged.append(h)
+        for s0, s1, off, oid in merged:
+            inner0, inner1 = min(s0 + ramp, s1), max(s1 - ramp, s0)
+            for s, d in ((s0, 0.0), (inner0, off), (inner1, off), (s1, 0.0)):
+                p = a + u * s + n * d
+                if np.linalg.norm(p - out[-1]) > 1e-3:
+                    out.append(p)
+            detours += oid.split(',')
+        if np.linalg.norm(b - out[-1]) > 1e-3:
+            out.append(b)
+    return out, detours, blocked

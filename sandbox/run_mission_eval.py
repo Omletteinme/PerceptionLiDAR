@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 FIELDS = ['condition', 'seed', 'severity', 'slip', 'state', 'reason', 'sim_time', 'wall_time', 'coverage',
           'removed', 'removed_ok', 'false_success', 'failed', 'rejected', 'feasible_left', 'defects',
-          'pickup_requests', 'recoveries', 'min_clearance', 'scrape', 'pos_rmse', 'max_pos_err', 'critical_s',
+          'pickup_requests', 'recoveries', 'debris_contacts', 'min_clearance', 'scrape', 'pos_rmse', 'max_pos_err', 'critical_s',
           'degraded_s']
 
 
@@ -43,7 +43,7 @@ def one(args):
     rep, sc = out['report'], out['scenario']
     removed = {r['id'] for r in rep['debris']['removed']}
     disposed = {d.id for d in sc.debris if d.disposed}
-    feasible = {d.id for d in sc.debris if sorted(d.size[:2])[0] <= 0.15 and d.size[2] <= 0.15}
+    feasible = {d.id for d in sc.debris if sorted(d.size[:2])[0] <= 0.11 and d.size[2] <= 0.15}
     accounted = removed | {r['id'] for r in rep['debris']['failed']} | {r['id'] for r in rep['debris']['rejected']} | \
         {r['id'] for r in rep['debris']['unreachable']}
     return dict(condition=cond, seed=seed, severity=sev, slip=slip, state=rep['state'], reason=rep['reason'][:200],
@@ -53,7 +53,7 @@ def one(args):
                 failed=len(rep['debris']['failed']), rejected=len(rep['debris']['rejected']),
                 feasible_left=len(feasible - accounted), defects=len(rep['defects']),
                 pickup_requests=rep['counts']['pickup_requests'], recoveries=rep['counts']['localization_recoveries'],
-                min_clearance=round(out['min_clearance'], 3),
+                debris_contacts=len(out['debris_contacts']), min_clearance=round(out['min_clearance'], 3),
                 scrape=int(out['min_clearance'] < explore_sim.ROBOT_HALF_W),
                 pos_rmse=round(out['pos_rmse'], 3), max_pos_err=round(out['max_pos_err'], 3),
                 critical_s=out['health_time'].get('CRITICAL', 0.0), degraded_s=out['health_time'].get('DEGRADED', 0.0))
