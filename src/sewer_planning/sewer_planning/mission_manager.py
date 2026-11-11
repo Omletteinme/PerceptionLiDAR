@@ -25,7 +25,7 @@ import numpy as np
 
 from .exploration import COMPLETE, INCOMPLETE, NO_ROUTE_HOME, Explorer
 from .mission_interfaces import MissionTask
-from .point_route import plan_to_point
+from .point_route import avoid_debris, plan_to_point
 from .task_prioritizer import TaskPrioritizer, carry_status
 
 INITIALIZE, EXPLORE, PRIORITIZE_TASKS = 'INITIALIZE', 'EXPLORE', 'PRIORITIZE_TASKS'
@@ -36,6 +36,7 @@ LOCALIZATION_RECOVERY, PICKUP_FAILED, NAVIGATION_FAILED = 'LOCALIZATION_RECOVERY
 DISPOSAL_FAILED, UNREACHABLE_TARGET, SAFE_STOP = 'DISPOSAL_FAILED', 'UNREACHABLE_TARGET', 'SAFE_STOP'
 
 TERMINAL = (MISSION_COMPLETE, SAFE_STOP)
+HEALTH_LEVEL = {'RELIABLE': 0, 'DEGRADED': 1, 'CRITICAL': 2}
 MOVING = (EXPLORE, NAVIGATE_TO_DEBRIS, RETURN_TO_DISPOSAL)
 CARRYING = (VERIFY_PICKUP, RETURN_TO_DISPOSAL, DISPOSE)
 
@@ -56,6 +57,9 @@ class MissionParams:
     critical_max: float = 60.0          # [s] of continuous CRITICAL localization before SAFE_STOP
     reprioritize_period: float = 2.0    # [s] between debris re-evaluations while exploring
     stranded_timeout: float = 60.0      # [s] waiting for a route back to the entrance (evidence may clear) -> SAFE_STOP
+    lidar_plane: float = 0.13           # debris lower than this is invisible to the 2D LiDAR: route around it explicitly
+    detections_max_health: str = 'RELIABLE'   # ingest new debris/defect records only at this health or better: with a
+                                              # poor pose perception reports phantom objects (Account 2's finding)
 
 
 class MissionManager:
@@ -79,6 +83,8 @@ class MissionManager:
         self.manipulation_enabled = True
         self.recoveries, self.input_errors, self.pickup_requests = 0, [], 0
         self.resumptions, self.carry_route, self.stranded_since = [], None, None
+        self.detections_ignored = 0
+        self.detoured, self.unavoidable = set(), set()
         self._last_xy, self._last_t, self.explore_result = None, None, None
 
     # ------------------------------------------------------------------ helpers
@@ -124,10 +130,13 @@ class MissionManager:
         status = status or {}
         if self.t0 is None:
             self.t0, self.t_state = now, now
-        for d in debris or ():
-            self.debris[d.id] = d
-        for d in defects or ():
-            self.defects[d.id] = d
+        if HEALTH_LEVEL.get(health, 2) <= HEALTH_LEVEL[self.p.detections_max_health]:
+            for d in debris or ():
+                self.debris[d.id] = d
+            for d in defects or ():
+                self.defects[d.id] = d
+        elif debris or defects:
+            self.detections_ignored += 1
         if manip is not None:
             self.manip = manip
         if disposal is not None:
@@ -171,7 +180,21 @@ class MissionManager:
         status = self.explorer.effective_status(status)
         handler = getattr(self, '_s_' + self.state.lower())
         handler(now, xy, cov, R, health, status, out)
+        if out['route']:
+            out['route'] = self._avoid_small_debris(out['route'])
         return self._out(out)
+
+    def _avoid_small_debris(self, route):
+        """Detour around known debris lower than the LiDAR plane (invisible to the blockage detector)."""
+        skip = self._done_ids() | ({self.target['id']} if self.target is not None else set())
+        if self.manip is not None and self.manip.state == 'HOLDING':
+            skip.add(self.manip.object_id)
+        obs = [(d.id, d.x, d.y, 0.5 * math.hypot(d.size[0], d.size[1]) + d.pos_sigma)
+               for d in self.debris.values() if d.id not in skip and d.size[2] < self.p.lidar_plane]
+        route, det, bad = avoid_debris(self.g, route, obs)
+        self.detoured.update(det)
+        self.unavoidable.update(bad)
+        return route
 
     def _out(self, out):
         out.update(state=self.state, reason=self.reason,
@@ -394,7 +417,10 @@ class MissionManager:
         out['route'] = []
         oid = self.target['id']
         self.dispose_attempts += 1
-        if self.dispose_attempts < self.p.max_dispose_attempts:
+        still_held = self.manip is not None and self.manip.state == 'HOLDING' and self.manip.object_id == oid
+        # retrying only makes sense while the object is still in the gripper: once it has been let go outside the
+        # verified zone another DISPOSE cannot change anything (seen in the end-to-end runs with Account 2's arm)
+        if self.dispose_attempts < self.p.max_dispose_attempts and still_held:
             self._go(now, DISPOSE, f'retry {self.dispose_attempts + 1}/{self.p.max_dispose_attempts}')
             return self._s_dispose(now, xy, cov, R, health, status, out, first=True)
         self.failed[oid] = f'disposal failed {self.dispose_attempts} times: {self.reason}'
@@ -433,7 +459,8 @@ class MissionManager:
             state=self.state, reason=self.reason, duration=round(now - (self.t0 or now), 1),
             distance_m=round(self.distance, 2), manipulation_enabled=self.manipulation_enabled,
             coverage=dict((k, cov[k]) for k in ('coverage', 'confidence', 'explored_m', 'accessible_m', 'blocked_m',
-                                                'unreachable_m', 'skipped_m', 'total_known_m', 'complete', 'segments')),
+                                                'unreachable_m', 'skipped_m', 'total_known_m', 'complete', 'segments',
+                                                'edges')),
             debris=dict(detected=[fmt(d) for d in self.debris.values()],
                         removed=[dict(id=k, t=v['t']) for k, v in self.removed.items()],
                         failed=[dict(id=k, reason=v) for k, v in self.failed.items()],
@@ -448,9 +475,10 @@ class MissionManager:
             counts=dict(detected=len(self.debris), removed=len(self.removed), failed=len(self.failed),
                         unreachable=len(self.unreachable), rejected=len(rej), defects=len(self.defects),
                         pickup_requests=self.pickup_requests,
-                        localization_recoveries=self.recoveries),
+                        localization_recoveries=self.recoveries, detection_updates_ignored=self.detections_ignored),
             state_time={k: round(v, 1) for k, v in self.state_time.items()},
             holding=(self.manip.object_id if self.manip is not None and self.manip.state == 'HOLDING' else None),
             resumptions=self.resumptions,
+            small_debris=dict(detoured=sorted(self.detoured), unavoidable=sorted(self.unavoidable - set(self.removed))),
             station=dict(xy=[round(float(v), 3) for v in self.station_xy], node=self.home),
             events=self.events, input_errors=self.input_errors[-20:])

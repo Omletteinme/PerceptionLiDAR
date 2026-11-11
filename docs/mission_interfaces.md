@@ -1,7 +1,7 @@
 # Mission interfaces: Account 1 ↔ Account 2 (PROPOSED)
 
-Status: **proposed by Account 1, not yet agreed.** Account 2 and the lead should review this before either side
-depends on it. After agreement, freeze it and record any change here.
+Status: **proposed by Account 1, accepted by Account 2 as written** (`docs/account2_interface_review.md`); awaiting the lead's freeze.
+After the freeze, record any change here.
 
 All messages are JSON in `std_msgs/String`, the same convention the repo already uses for `edge_gaps`,
 `route_info` and `localization_health`. This avoids a new message package before the schemas are frozen. The
@@ -88,14 +88,14 @@ State and reason at 2 Hz. The report (every 2 s, and once at the end) contains c
 failed, unreachable and rejected (with reasons), the last ranking with its score terms, defects, counts, the event
 timeline and time spent in each state.
 
-## Proposed placeholder limits (Account 2 to replace with the real arm design)
+## Limits (Account 2's arm, from `docs/account2_interface_review.md`)
 
 | parameter | value | used for |
 |---|---|---|
-| gripper max opening (`gripper_max_width`) | 0.15 m | the object's smaller horizontal size + 1 sigma must fit |
-| max carried length (`gripper_max_length`) | 0.30 m | longer objects are rejected |
+| gripper max opening (`gripper_max_width`) | **0.11 m** (Account 2) | the object's smaller horizontal size + 1 sigma must fit |
+| max carried length (`gripper_max_length`) | **0.32 m** (Account 2) | longer objects are rejected |
 | max object height (`gripper_max_height`) | 0.15 m | |
-| reach from stand-off point | ≥ 0.65 m assumed | stand-off is 0.25 m before the near face, and the follower stops within 0.2 m of its goal |
+| reach from stand-off point | **0.25-0.60 m ahead, ±0.3 m to the side, and beside the robot** (Account 2) | stand-off is 0.25 m before the near face, and the follower stops within 0.2 m of its goal |
 | disposal station | entrance node `A` (0, 0), zone radius 0.6 m assumed | the robot drives there carrying the object |
 
 All of these live in `src/sewer_planning/config/mission.yaml` (loaded by `mission_manager.launch.py`). When a station

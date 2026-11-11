@@ -9,6 +9,7 @@ through the JSON parsers of sewer_planning.mission_interfaces, exactly as the RO
 """
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -22,6 +23,7 @@ from sewer_localization.particle_filter import PFParams  # noqa: E402
 from sewer_planning.mission_interfaces import (parse_debris, parse_defects, parse_disposal,  # noqa: E402
                                                parse_manipulation)
 from sewer_planning.mission_manager import TERMINAL, MissionManager, MissionParams  # noqa: E402
+from sewer_planning.report_render import decimate, write_report  # noqa: E402
 from sewer_planning.route_cost import RouteModel  # noqa: E402
 
 DT = explore_sim.DT
@@ -40,7 +42,7 @@ def run(seed=0, network='sewer_network_v2', t_max=1500.0, fail=None, manipulator
     rng = np.random.default_rng(seed + 7)
     perc = StandInPerception(sc, true, rng)
     arm = StandInManipulator(sc, graph.nodes[graph.start], fail=fail)
-    path, res, states, tasks = None, None, [], []
+    path, res, states, tasks, contacts = None, None, [], [], set()
     t0 = time.time()
     for k in range(int(t_max / DT)):
         now = k * DT
@@ -65,8 +67,12 @@ def run(seed=0, network='sewer_network_v2', t_max=1500.0, fail=None, manipulator
             if res['route'] is not None:
                 path = explore_sim.densify(res['route']) if len(res['route']) else None
         robot.step(*robot.command(path))
+        for d in sc.debris:                       # EVALUATION ONLY: did the TRUE robot run into loose debris?
+            if not d.held and not d.disposed and d.category != 'rubble_pile' and                     math.hypot(d.x - robot.x, d.y - robot.y) < 0.5 * math.hypot(d.size[0], d.size[1]) + 0.15:
+                contacts.add(d.id)
     rep = mm.report(k * DT)
     return dict(result=res, report=rep, states=states, tasks=tasks, scenario=sc, graph=graph, truth=truth,
+                debris_contacts=sorted(contacts),
                 wall_time=time.time() - t0, **robot.metrics())
 
 
@@ -79,6 +85,7 @@ def main():
     ap.add_argument('--severity', type=float, default=0.0, help='scan disturbance severity (0 = clean)')
     ap.add_argument('--slip', type=float, default=0.0, help='wheel-slip severity (0 = none)')
     ap.add_argument('--report', default='', help='write the final mission report JSON here')
+    ap.add_argument('--report-dir', default='', help='write report.json, report.md and map.png into this folder')
     a = ap.parse_args()
     fail = {kv.split('=')[0]: int(kv.split('=')[1]) for kv in a.fail.split(',') if kv}
     out = run(a.seed, t_max=a.t_max, fail=fail, manipulator=not a.no_manipulator, verbose=True, severity=a.severity,
@@ -93,9 +100,14 @@ def main():
     print(f"min wall clearance {out['min_clearance']:.3f} m, pose RMSE {out['pos_rmse']:.3f} m "
           f"(max {out['max_pos_err']:.3f}), health time {out['health_time']}")
     print('true disposal:', {d.id: d.disposed for d in out['scenario'].debris})
+    print('debris the TRUE robot ran into:', out['debris_contacts'], '| detoured', r['small_debris'])
     if a.report:
         with open(a.report, 'w') as f:
             json.dump(r, f, indent=1, default=str)
+    if a.report_dir:
+        prior = explore_sim.load_network('sewer_network_v2', 'blocked')[0]
+        edges = {k: v['state'] for k, v in r['coverage']['edges'].items()}
+        print('wrote', write_report(r, a.report_dir, out['graph'], edges, prior, decimate(out['est'][:, :2])))
 
 
 if __name__ == '__main__':

@@ -73,7 +73,7 @@ def test_largest_feasible_not_largest(model):
     """Objects at similar distances: L1 is the biggest but too wide for the gripper, so the largest FEASIBLE one (S4)
     must win over the smaller feasible ones."""
     tp = TaskPrioritizer(model)
-    debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08)), deb('S4', 5.0, -0.3, (0.14, 0.14, 0.14)),
+    debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08)), deb('S4', 5.0, -0.3, (0.14, 0.10, 0.14)),
               deb('S3', 4.5, 0.3, (0.06, 0.05, 0.04)), deb('L1', 5.5, 0.3, (0.35, 0.22, 0.20))]
     ev = tp.evaluate(debris, ('node', 'A'), {}, 0.95, model.initial_covariance(), 0.0, 'A')
     assert [r['id'] for r in ev['ranked']] == ['S4', 'S1', 'S3']
@@ -88,7 +88,7 @@ def test_largest_feasible_not_largest(model):
 def test_closer_object_can_outrank_a_slightly_larger_far_one(model):
     """The rule is a weighted trade-off, not size alone: S1 next to the robot beats the slightly larger S2 22 m away."""
     tp = TaskPrioritizer(model)
-    debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08)), deb('S2', 12.3, 8.0, (0.12, 0.12, 0.10))]
+    debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08)), deb('S2', 12.3, 8.0, (0.12, 0.09, 0.10))]
     ev = tp.evaluate(debris, ('node', 'A'), {}, 0.95, model.initial_covariance(), 0.0, 'A')
     assert [r['id'] for r in ev['ranked']] == ['S1', 'S2']
     s1, s2 = ev['ranked']
@@ -97,9 +97,9 @@ def test_closer_object_can_outrank_a_slightly_larger_far_one(model):
 
 def test_hard_filters_record_reasons(model):
     tp = TaskPrioritizer(model)
-    debris = [deb('lowconf', 4.0, 0.3, (0.1, 0.1, 0.05), conf=0.2), deb('old', 4.5, 0.3, (0.1, 0.1, 0.05), stamp=-100),
-              deb('nogrip', 5.0, 0.3, (0.1, 0.1, 0.05), graspable=False), deb('tall', 5.5, 0.3, (0.1, 0.1, 0.3)),
-              deb('tried', 6.0, 0.3, (0.1, 0.1, 0.05)), deb('cutoff', 12.0, 3.0, (0.1, 0.1, 0.05))]
+    debris = [deb('lowconf', 4.0, 0.3, (0.1, 0.09, 0.05), conf=0.2), deb('old', 4.5, 0.3, (0.1, 0.09, 0.05), stamp=-100),
+              deb('nogrip', 5.0, 0.3, (0.1, 0.09, 0.05), graspable=False), deb('tall', 5.5, 0.3, (0.1, 0.1, 0.3)),
+              deb('tried', 6.0, 0.3, (0.1, 0.09, 0.05)), deb('cutoff', 12.0, 3.0, (0.1, 0.09, 0.05))]
     status = {'A-J1': blocked(7.0, 7.6)}           # nothing beyond the debris in A-J1 can be reached
     ev = tp.evaluate(debris, ('node', 'A'), status, 0.95, model.initial_covariance(), 0.0, 'A',
                      attempts={'tried': 2})
@@ -114,7 +114,7 @@ def test_object_that_cannot_be_carried_back_is_rejected(model):
     tp = TaskPrioritizer(model)
     status = {'J1-J4': blocked(3.6, 4.4),
               'J1-J2': dict(gap=0.35, blocked=False, s_min=2.8, s_max=3.5, offset=-0.2, observed=0.5, cells=20)}
-    ev = tp.evaluate([deb('S2', 12.3, 8.0, (0.12, 0.12, 0.10))], ('node', 'M'), status, 0.95,
+    ev = tp.evaluate([deb('S2', 12.3, 8.0, (0.12, 0.09, 0.10))], ('node', 'M'), status, 0.95,
                      model.initial_covariance(), 0.0, 'A')
     assert [r['reason'] for r in ev['rejected']] == ['carry']
 
@@ -178,7 +178,7 @@ def test_stale_pose_is_a_safe_stop(model):
 
 def test_full_cycle_with_verified_pickup_and_disposal(model):
     s = Script(model)
-    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08))]
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08))]
     s.tick()
     out = s.tick(4)
     assert out['state'] == PICKUP and s.tasks[-1].type == 'PICKUP' and s.tasks[-1].object_id == 'S1'
@@ -201,7 +201,7 @@ def test_full_cycle_with_verified_pickup_and_disposal(model):
 def test_unverified_hold_is_not_a_pickup(model):
     """HOLDING without verification evidence must not count: retry, then give up and report."""
     s = Script(model, verify_timeout=1.0, max_pickup_attempts=2)
-    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08))]
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08))]
     s.tick(5)
     assert s.mm.state == PICKUP
     for _ in range(2):
@@ -215,7 +215,7 @@ def test_unverified_hold_is_not_a_pickup(model):
 
 def test_failed_disposal_while_holding_stops_safely(model):
     s = Script(model, max_dispose_attempts=2, dispose_timeout=2.0)
-    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08))]
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08))]
     s.tick(5)
     s.manip = ManipulationStatus('HOLDING', s.t, 'S1', verified=True, task_id=s.tasks[-1].task_id)
     s.debris = []
@@ -271,7 +271,7 @@ def test_return_with_debris_avoids_a_gap_it_could_drive_through_empty(model):
     s = Script(model)
     s.mm.prio = TaskPrioritizer(model, params=PriorityParams(carry_clearance=0.15))
     s.status = dict(NARROW_J1J2)
-    s.debris = [deb('S2', 12.3, 8.0, (0.12, 0.12, 0.10))]
+    s.debris = [deb('S2', 12.3, 8.0, (0.12, 0.09, 0.10))]
     s.tick()
     assert s.mm.state == NAVIGATE_TO_DEBRIS and s.mm.target['id'] == 'S2'   # reachable and carryable (via J4)
     s.tick(4)
@@ -285,7 +285,7 @@ def test_return_with_debris_avoids_a_gap_it_could_drive_through_empty(model):
 
 def test_report_records_resumption_after_disposal(model):
     s = Script(model)
-    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.10, 0.08))]
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08))]
     s.tick(5)
     s.manip = ManipulationStatus('HOLDING', s.t, 'S1', verified=True, task_id=s.tasks[-1].task_id)
     s.debris = []
@@ -324,3 +324,77 @@ def test_stranded_robot_waits_then_stops_safely_never_completes(model):
     out = s.tick(12)
     assert out['state'] == SAFE_STOP and 'stranded' in out['reason']
     assert MISSION_COMPLETE not in [e.get('to') for e in s.mm.events]
+
+
+# ------------------------------------------------------------------ small debris below the LiDAR plane
+from sewer_planning.point_route import avoid_debris  # noqa: E402
+
+
+def _clearance(pts, ox, oy):
+    pts = [np.asarray(p, float) for p in pts]
+    best = 1e9
+    for a, b in zip(pts[:-1], pts[1:]):
+        t = np.clip(np.dot([ox, oy] - a, b - a) / max(np.dot(b - a, b - a), 1e-12), 0, 1)
+        best = min(best, float(np.hypot(*(a + t * (b - a) - [ox, oy]))))
+    return best
+
+
+def test_route_bends_around_small_debris_and_stays_in_the_corridor():
+    route = [np.array(A), np.array(GRAPH.nodes['J1'])]
+    pts, det, bad = avoid_debris(GRAPH, route, [('S9', 4.0, 0.05, 0.06)])
+    assert det == ['S9'] and bad == []
+    assert _clearance(pts, 4.0, 0.05) >= 0.06 + 0.15 + 0.05 - 1e-6
+    assert all(abs(p[1]) <= 0.30 + 1e-6 for p in pts)           # A-J1 runs along y = 0
+    pts2, det2, _ = avoid_debris(GRAPH, route, [('S8', 4.0, 0.32, 0.04)])   # already clear: untouched
+    assert det2 == [] and len(pts2) == 2
+
+
+def test_debris_too_big_to_pass_is_reported_not_driven_over():
+    route = [np.array(A), np.array(GRAPH.nodes['J1'])]
+    pts, det, bad = avoid_debris(GRAPH, route, [('BIG', 4.0, 0.0, 0.25)])
+    assert det == [] and bad == ['BIG'] and len(pts) == 2
+
+
+def test_mission_detours_around_known_low_debris_but_not_its_target(model):
+    s = Script(model)
+    s.debris = [deb('T', 7.0, 0.3, (0.14, 0.08, 0.08)), deb('LOW', 3.0, 0.0, (0.06, 0.06, 0.05), conf=0.3),
+                deb('TALL', 5.0, -0.1, (0.3, 0.3, 0.4), conf=0.3)]
+    out = s.tick()
+    assert s.mm.state == NAVIGATE_TO_DEBRIS and s.mm.target['id'] == 'T'
+    assert _clearance(out['route'], 3.0, 0.0) > 0.2              # LOW (low confidence, still a physical obstacle)
+    rep = s.mm.report(s.t)
+    assert rep['small_debris']['detoured'] == ['LOW']           # TALL is seen by the LiDAR; T is the target
+
+
+def test_final_report_renders_markdown_and_map(model, tmp_path):
+    from sewer_planning.report_render import write_report
+    s = Script(model)
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08)), deb('L1', 5.5, 0.3, (0.35, 0.22, 0.20))]
+    s.tick(3)
+    rep = s.mm.report(s.t)
+    edges = {k: v['state'] for k, v in rep['coverage']['edges'].items()}
+    files = write_report(rep, str(tmp_path), GRAPH, edges, PRIOR, [(0, 0), (2, 0)])
+    md = open(files[1], encoding='utf-8').read()
+    assert '## Coverage' in md and '| L1 |' in md and 'rejected' in md and '## Structural defects' in md
+    assert files[2].endswith('map.png') and os.path.getsize(files[2]) > 10000
+
+
+def test_no_dispose_retry_once_the_object_has_been_let_go(model):
+    """A released-but-unverified object cannot be disposed again: report it at once instead of a futile retry."""
+    s = Script(model, max_dispose_attempts=2)
+    s.debris = [deb('S1', 4.0, 0.3, (0.14, 0.08, 0.08))]
+    s.tick(5)
+    s.manip = ManipulationStatus('HOLDING', s.t, 'S1', verified=True, task_id=s.tasks[-1].task_id)
+    s.debris = []
+    s.tick(6)
+    assert s.mm.state == 'DISPOSE'
+    tid = s.tasks[-1].task_id
+    s.manip = ManipulationStatus('RELEASED', s.t, 'S1', task_id=tid)
+    s.disposal = DisposalStatus(s.t, 'S1', station_reached=True, released=True, verified=False,
+                                reason='failed: no evidence the object is in the tray', task_id=tid)
+    n_dispose = sum(t.type == 'DISPOSE' for t in s.tasks)
+    s.tick(2)
+    rep = s.mm.report(s.t)
+    assert sum(t.type == 'DISPOSE' for t in s.tasks) == n_dispose        # no second DISPOSE
+    assert [f['id'] for f in rep['debris']['failed']] == ['S1'] and rep['debris']['removed'] == []
+    assert s.mm.state != SAFE_STOP                                        # nothing held: carry on

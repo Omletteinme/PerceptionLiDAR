@@ -20,7 +20,7 @@ CUSTOM code (ours), pure NumPy. Two stages (build plan, section 6):
    Default weights 0.4 / 0.3 / 0.2 / 0.1: size first (the brief), then how much the object obstructs the flow, then how
    cheap it is to reach. This is a proposed baseline heuristic, not a proven optimal policy.
 
-The gripper limits are PROPOSED placeholders until Account 2 fixes the arm design (docs/mission_interfaces.md).
+Gripper limits: Account 2's real arm (docs/account2_interface_review.md): 0.11 m opening, 0.32 m length, 0.15 m height.
 """
 import math
 from dataclasses import dataclass
@@ -32,8 +32,8 @@ from .point_route import approach_points, plan_to_point
 
 @dataclass
 class GripperLimits:
-    max_width: float = 0.15      # finger opening [m] (the object's smaller horizontal dimension must fit)
-    max_length: float = 0.30     # longest horizontal dimension that can be carried in front of the chassis [m]
+    max_width: float = 0.11      # finger opening [m] (the object's smaller horizontal dimension must fit)
+    max_length: float = 0.32     # longest object carried folded over the robot [m]
     max_height: float = 0.15     # [m]
     robot_width: float = 0.30    # chassis + wheels [m]
 

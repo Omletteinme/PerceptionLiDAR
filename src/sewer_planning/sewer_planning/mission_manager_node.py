@@ -22,6 +22,8 @@ Outputs:
 Malformed or non-map-frame messages are dropped and listed under input_errors in the report.
 """
 import json
+import os
+import time
 
 import numpy as np
 import rclpy
@@ -35,6 +37,7 @@ from sewer_localization.map_utils import OccupancyMap
 from .graph import Graph
 from .mission_interfaces import SchemaError, parse_debris, parse_defects, parse_disposal, parse_manipulation
 from .mission_manager import TERMINAL, MissionManager, MissionParams
+from .report_render import decimate, write_report
 from .route_cost import CostParams, RouteModel
 from .route_planner_node import RoutePlannerNode
 from .task_prioritizer import GripperLimits, PriorityParams, TaskPrioritizer
@@ -55,9 +58,12 @@ class MissionManagerNode(Node):
         if not graph_path or not map_path:
             raise ValueError("parameters 'graph_path' and 'map_path' are required")
         self.graph = Graph.load(graph_path)
-        model = RouteModel(self.graph, OccupancyMap.load(map_path), CostParams(w_unc=float(d('w_unc', 2.0).value)))
-        lim = GripperLimits(max_width=float(d('gripper_max_width', 0.15).value),
-                            max_length=float(d('gripper_max_length', 0.30).value),
+        self.omap = OccupancyMap.load(map_path)
+        self.report_dir = os.path.expanduser(d('report_dir', '~/sewer_ws/logs/mission_reports').value)
+        self.path_xy = []
+        model = RouteModel(self.graph, self.omap, CostParams(w_unc=float(d('w_unc', 2.0).value)))
+        lim = GripperLimits(max_width=float(d('gripper_max_width', 0.11).value),
+                            max_length=float(d('gripper_max_length', 0.32).value),
                             max_height=float(d('gripper_max_height', 0.15).value))
         prio = TaskPrioritizer(model, lim, PriorityParams(w_size=float(d('w_size', 0.4).value),
                                                           w_obstruction=float(d('w_obstruction', 0.3).value),
@@ -99,6 +105,8 @@ class MissionManagerNode(Node):
         c = m.pose.covariance
         self.pose = (m.pose.pose.position.x, m.pose.pose.position.y)
         self.pose_stamp = sec(m.header.stamp)
+        if not self.path_xy or (self.pose[0] - self.path_xy[-1][0]) ** 2 + (self.pose[1] - self.path_xy[-1][1]) ** 2 > 0.04:
+            self.path_xy.append(self.pose)
         self.cov = np.array([[c[0], c[1]], [c[6], c[7]]])
 
     def on_r(self, m):
@@ -162,6 +170,18 @@ class MissionManagerNode(Node):
         if out['state'] in TERMINAL and not was_terminal:
             self.get_logger().info(f"mission {out['state']}: {out['reason']}")
             self.publish_report()
+            self.save_report(now)
+
+    def save_report(self, now):
+        """report.json, report.md and map.png under report_dir/<wall-clock time>/."""
+        out = os.path.join(self.report_dir, time.strftime('%Y%m%d_%H%M%S'))
+        try:
+            rep = self.mm.report(now)
+            edges = {k: v['state'] for k, v in rep['coverage'].get('edges', {}).items()}
+            files = write_report(rep, out, self.graph, edges, self.omap, decimate(self.path_xy))
+            self.get_logger().info('mission report written: ' + ', '.join(files))
+        except Exception as e:                     # never let reporting take the node down
+            self.get_logger().error(f'could not write the mission report to {out}: {e}')
 
     def publish_report(self):
         now = sec(self.get_clock().now().to_msg())

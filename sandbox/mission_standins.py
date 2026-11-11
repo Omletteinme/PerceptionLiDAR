@@ -47,12 +47,12 @@ class Scenario:
 def scenario_v2(truth=None):
     """Debris and defects for the v2 network (sandbox only; the Gazebo world does not contain them yet).
 
-    S1-S3 fit the PROPOSED gripper; L1 is the largest loose object but too wide to grasp; the blockage piles from the
+    S1-S3 fit Account 2's gripper (0.11 m opening); L1 is the largest loose object but too wide to grasp; the blockage piles from the
     world truth (B1, B2, B3) are added as large rubble objects.
     """
     sc = Scenario(
-        debris=[TrueDebris('S1', 4.0, 0.30, (0.14, 0.10, 0.08), 'brick', 0.10),
-                TrueDebris('S2', 12.30, 8.0, (0.12, 0.12, 0.10), 'bottle_pack', 0.15),
+        debris=[TrueDebris('S1', 4.0, 0.30, (0.14, 0.08, 0.08), 'brick', 0.10),
+                TrueDebris('S2', 12.30, 8.0, (0.12, 0.09, 0.10), 'bottle_pack', 0.15),
                 TrueDebris('S3', 8.30, -3.0, (0.06, 0.05, 0.04), 'can', 0.05),
                 TrueDebris('L1', 14.0, 9.65, (0.35, 0.22, 0.20), 'tyre_piece', 0.35)],
         defects=[TrueDefect('C1', 'crack', 6.0, -0.5, 0.4), TrueDefect('H1', 'hole', 16.5, 3.0, 0.8),
@@ -106,7 +106,7 @@ class StandInPerception:
 class StandInManipulator:
     """Answers /mission/task with /manipulation/status and /disposal/status JSON. Physical checks use the TRUE pose."""
 
-    def __init__(self, scenario, station_xy, reach=0.65, max_width=0.15, grasp_time=3.0, release_time=2.0,
+    def __init__(self, scenario, station_xy, reach=0.65, max_width=0.11, grasp_time=3.0, release_time=2.0,
                  station_radius=0.6, fail=None):
         self.sc, self.station = scenario, np.asarray(station_xy, float)
         self.reach, self.max_width = reach, max_width
